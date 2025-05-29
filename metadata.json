@@ -1,0 +1,6 @@
+{
+  "name": "Visual Web Test Automator",
+  "description": "An application to visually create and simulate web page test automation sequences using a drag-and-drop interface. It allows users to define actions, associate them with mock detected page elements, and simulate test execution. Tests can be saved and loaded. Includes a feature to generate test steps from natural language commands using Gemini API.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
