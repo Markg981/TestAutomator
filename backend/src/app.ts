@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import sessionRoutes from './routes/sessionRoutes';
 import geminiRoutes from './routes/geminiRoutes';
+import playwrightRoutes from './routes/playwrightRoutes'; // Added import
 import authRoutes, { verifyToken } from './routes/authRoutes';
 import testRoutes from './routes/testRoutes';
 
@@ -51,6 +52,7 @@ app.use('/api', verifyToken);
 // Routes protette (verifyToken will apply to these if not handled above)
 app.use('/api/session', sessionRoutes);
 app.use('/api/gemini', geminiRoutes);
+app.use('/api/playwright', playwrightRoutes); // Added playwright routes
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

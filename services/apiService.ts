@@ -87,6 +87,21 @@ export const apiService = {
     return data.elements;
   },
 
+  async detectElementsByPlaywright(url: string): Promise<any[]> { // Using any[] for now, will be ElementInfo[]
+    const response = await fetch(`${API_BASE_URL}/playwright/detect-elements`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ url }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error('Failed to detect elements by Playwright:', errorBody);
+      throw new Error(`Failed to detect elements by Playwright: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.elements; // Assuming the backend returns { elements: ElementInfo[] }
+  },
+
   async getElementScreenshot(sessionId: string, selector: string): Promise<string> {
     const response = await fetch(
       `${API_BASE_URL}/session/${sessionId}/element-screenshot?selector=${encodeURIComponent(selector)}`,

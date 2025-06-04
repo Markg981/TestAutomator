@@ -834,72 +834,53 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
           }
         }, 500);
       } else {
-        // Per le pagine esterne, usa l'API backend
-        if (url.includes('/gstd/gstd-report')) {
-          // Per GSTD, usa l'API scanElements con sessionId 'direct-request'
-          const elements = await apiService.scanElements('direct-request');
+        // For external pages, use the new Playwright backend service
+        log('createTestPage.logs.detectingElementsWithPlaywright', { url }, 'info');
+        console.log(`[DEBUG] Detecting elements for external URL: ${url} using Playwright backend service.`);
+        const backendElements = await apiService.detectElementsByPlaywright(url); // ElementInfo[]
+
+        const newDetectedElements: DetectedElement[] = backendElements.map((el: any, index: number) => {
+          // el is ElementInfo: { tag, id?, classes?, text?, attributes, xpath, selector, boundingBox? }
+          const tagName = el.tag?.toUpperCase() || 'UNKNOWN';
           
-          const newDetectedElements: DetectedElement[] = elements.map((el: any, index: number) => {
-            const elId = `el_${el.selector?.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}` || `el_${index}`;
-            return {
-              id: elId,
-              name: el.name || el.tagName || 'Unknown Element',
-              tagName: el.tagName || 'DIV',
-              selector: el.selector || '',
-              attributes: el.attributes || {},
-              text: el.text
-            };
-          });
+          // Simplified name generation. Can be enhanced later.
+          let name = el.text?.trim().substring(0, 70);
+          if (!name) name = el.attributes?.name || el.attributes?.id || el.attributes?.['aria-label'];
+          if (!name) name = `${tagName} (${el.selector?.substring(0, 40)}...)`;
+          if (!name) name = `${tagName} #${index}`;
+
+
+          const feId = `el_pw_${el.selector?.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0,40)}_${index}`;
           
-          setDetectedElements(newDetectedElements);
-          if (newDetectedElements.length > 0) {
-            log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
-            console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via backend API.`);
-          } else {
-            log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-            console.warn(`[DEBUG] No interactive elements found for ${sourceName}.`);
-          }
+          return {
+            id: feId,
+            name: name,
+            tagName: tagName,
+            selector: el.selector || '', // CSS selector from Playwright
+            attributes: el.attributes || {},
+            text: el.text?.trim() || undefined,
+            // boundingBox: el.boundingBox // Available if needed later
+          };
+        });
+
+        setDetectedElements(newDetectedElements);
+        if (newDetectedElements.length > 0) {
+          log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
+          console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via Playwright backend API for ${url}.`);
         } else {
-          // Per altre pagine esterne, prima carica la pagina nel backend e poi rileva gli elementi
-          log('createTestPage.logs.loadingPageInBackend', { url }, 'info');
-          const { sessionId } = await apiService.loadPage(url);
-          
-          const elements = await apiService.scanElements(sessionId);
-          
-          const newDetectedElements: DetectedElement[] = elements.map((el: any, index: number) => {
-            const elId = `el_${el.selector?.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}` || `el_${index}`;
-            return {
-              id: elId,
-              name: el.name || el.tagName || 'Unknown Element',
-              tagName: el.tagName || 'DIV',
-              selector: el.selector || '',
-              attributes: el.attributes || {},
-              text: el.text
-            };
-          });
-          
-          setDetectedElements(newDetectedElements);
-          if (newDetectedElements.length > 0) {
-            log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
-            console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via backend API.`);
-          } else {
-            log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-            console.warn(`[DEBUG] No interactive elements found for ${sourceName}.`);
-          }
-          
-          // Chiudi la sessione backend se non è quella diretta
-          if (sessionId !== 'direct-request') {
-            await apiService.closeSession(sessionId);
-          }
+          log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
+          console.warn(`[DEBUG] No interactive elements found via Playwright backend API for ${url}.`);
         }
       }
     } catch (error) {
-      console.error("[DEBUG] Error during backend element detection:", error);
-      log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
-      setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
+      console.error("[DEBUG] Error during element detection (either internal or Playwright backend):", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log('createTestPage.logs.errorDuringElementDetection', { source: sourceName, error: errorMessage }, 'error');
+      setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedSpecific', { error: errorMessage }));
       setDetectedElements([]);
     } finally {
       setIsDetectingElements(false);
+      console.log("[DEBUG] Element detection process finished.");
     }
   }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, isInternalTestPageLoaded, setElementDetectionError, isLoadingPage, url]);
 
