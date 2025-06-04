@@ -47,9 +47,11 @@ export const translations: Record<Locale, Translations> = {
     navigation: {
       title: "Test Automator",
       dashboard: "Dashboard",
-      createTest: "Crea Test (Trascina)",
-      recordTest: "Registra Test Azioni",
+      createTest: "Crea Test",
+      recordTest: "Registra Test",
       settings: "Impostazioni",
+      logout: "Esci",
+      loggedInAs: "Accesso effettuato come"
     },
     dashboard: {
       title: "Dashboard Riepilogo Test",
@@ -138,6 +140,8 @@ export const translations: Record<Locale, Translations> = {
       webPreviewPanel: {
         title: "Anteprima Pagina & Log Esecuzione",
         clearLogButton: "Pulisci Log",
+        executionLog: "Log di Esecuzione",
+        clearLog: "Pulisci Log",
         previewFor: "Anteprima per: {{urlForDisplay}}",
         internalPageQualifier: "(Nessun problema cross-origin)",
         externalPageQualifier: "(Potenziali problemi cross-origin con siti esterni)", // Kept for cases where proxy might not be used or fails
@@ -347,6 +351,17 @@ export const translations: Record<Locale, Translations> = {
         errorDuringActionExecution: "ERRORE durante l'esecuzione di {{actionType}} su '{{target}}': {{error}}. Potrebbe essere un problema cross-origin o di accesso all'iframe.",
         testExecutionCompleted: "Esecuzione test completata.",
       },
+    },
+    loginPage: {
+      title: "Accedi a Test Automator",
+      usernameLabel: "Nome utente",
+      usernamePlaceholder: "Inserisci il tuo nome utente",
+      passwordLabel: "Password",
+      passwordPlaceholder: "Inserisci la tua password",
+      loginButton: "Accedi",
+      loggingIn: "Accesso in corso...",
+      errorInvalidCredentials: "Credenziali non valide",
+      errorGeneric: "Si è verificato un errore durante l'accesso"
     }
   },
   en: { // English translations mirrored, placeholders for brevity if not already translated.
@@ -386,9 +401,11 @@ export const translations: Record<Locale, Translations> = {
     navigation: {
       title: "Test Automator",
       dashboard: "Dashboard",
-      createTest: "Create Test (Drag & Drop)",
-      recordTest: "Record Test Actions",
+      createTest: "Create Test",
+      recordTest: "Record Test",
       settings: "Settings",
+      logout: "Logout",
+      loggedInAs: "Logged in as"
     },
     dashboard: {
       title: "Test Summary Dashboard",
@@ -477,6 +494,8 @@ export const translations: Record<Locale, Translations> = {
       webPreviewPanel: {
         title: "Page Preview & Execution Log",
         clearLogButton: "Clear Log",
+        executionLog: "Execution Log",
+        clearLog: "Clear Log",
         previewFor: "Preview for: {{urlForDisplay}}",
         internalPageQualifier: "(No cross-origin issues)",
         externalPageQualifier: "(Potential cross-origin issues with external sites)",
@@ -686,6 +705,17 @@ export const translations: Record<Locale, Translations> = {
         errorDuringActionExecution: "ERROR during execution of {{actionType}} on '{{target}}': {{error}}. This could be a cross-origin or iframe access issue.",
         testExecutionCompleted: "Test execution completed.",
       },
+    },
+    loginPage: {
+      title: "Accedi a Test Automator",
+      usernameLabel: "Nome utente",
+      usernamePlaceholder: "Inserisci il tuo nome utente",
+      passwordLabel: "Password",
+      passwordPlaceholder: "Inserisci la tua password",
+      loginButton: "Accedi",
+      loggingIn: "Accesso in corso...",
+      errorInvalidCredentials: "Credenziali non valide",
+      errorGeneric: "Si è verificato un errore durante l'accesso"
     }
   }
 };

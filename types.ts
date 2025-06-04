@@ -32,7 +32,8 @@ export interface DetectedElement {
   name: string; 
   tagName: string; 
   attributes: Record<string, string>; 
-  selector: string; 
+  selector: string;
+  text?: string; 
 }
 
 export interface TestStep {
@@ -68,4 +69,12 @@ export interface GeminiGeneratedStep {
   actionName: string; // Will be an ActionType string value, e.g., "GOTO_URL"
   targetElementNameOrSelector?: string; 
   inputValue?: string; 
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'user';
+  createdAt: string;
 }

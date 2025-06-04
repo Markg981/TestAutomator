@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback, DragEvent, ReactNode } from 'react';
-import { ActionDefinition, DetectedElement, TestStep, SavedTest, ItemTypes, DragItem, GeminiGeneratedStep, ActionType, Page } from '../types';
-import { AVAILABLE_ACTIONS, getActionDefinition } from '../constants'; // Import getActionDefinition
+import React, { useState, useEffect, useCallback, DragEvent, ReactNode, Dispatch, SetStateAction } from 'react';
+import { ActionDefinition, DetectedElement, TestStep, SavedTest, ItemTypes, DragItem, GeminiGeneratedStep, ActionType } from '../types';
+import { AVAILABLE_ACTIONS, getActionDefinition } from '../constants';
 import { saveTestToLocalStorage, loadAllTestsFromLocalStorage, deleteTestFromLocalStorage, updateTestInLocalStorage } from '../services/testStorageService';
 import { generateStepsFromNaturalLanguage } from '../services/geminiService';
 import { Modal } from '../components/Modal';
 import { useTheme } from '../ThemeContext';
-import { useLocalization } from '../LocalizationContext'; // Import useLocalization
+import { useLocalization } from '../LocalizationContext';
+import { apiService } from '../services/apiService';
 
 // Helper Functions
 // getActionDefinition is now imported from constants.tsx
@@ -24,10 +25,10 @@ interface HeaderProps {
   handleLoadInternalTestPage: () => void; 
   isPagePreviewVisible: boolean;
   isDetectingElements: boolean;
-  handleDetectElements: () => void; // Rimosso il parametro isForInternalPage
+  handleDetectElements: () => void;
   testStepsCount: number;
   handleRunTest: () => void;
-  handleSaveTest: () => void;
+  onSaveTest: () => void;
   currentTestId: string | null;
   onShowLoadModal: () => void;
 }
@@ -35,7 +36,7 @@ interface HeaderProps {
 const Header = React.memo<HeaderProps>(({
   url, setUrl, isLoadingPage, isRunningTest, handleLoadUrl, handleLoadInternalTestPage,
   isPagePreviewVisible, isDetectingElements, handleDetectElements,
-  testStepsCount, handleRunTest, handleSaveTest, currentTestId, onShowLoadModal
+  testStepsCount, handleRunTest, onSaveTest, currentTestId, onShowLoadModal
 }) => {
   const { theme } = useTheme();
   const { t } = useLocalization();
@@ -72,7 +73,7 @@ const Header = React.memo<HeaderProps>(({
               className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded disabled:opacity-50 transition-colors">
         {isRunningTest ? t('createTestPage.header.runningTestButton') : t('createTestPage.header.runTestButton')}
       </button>
-      <button onClick={handleSaveTest} disabled={isRunningTest || testStepsCount === 0}
+      <button onClick={onSaveTest} disabled={isRunningTest || testStepsCount === 0}
               className={`px-4 py-2 rounded disabled:opacity-50 transition-colors
                           ${theme === 'light' ? 'bg-indigo-500 hover:bg-indigo-600 text-white' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
         {currentTestId ? t('createTestPage.header.updateTestButton') : t('createTestPage.header.saveTestButton')}
@@ -361,13 +362,13 @@ const TestCanvas = React.memo<TestCanvasProps>(({
 const IFRAME_PREVIEW_ID = "web-preview-iframe";
 
 interface WebPreviewPanelProps {
-  iframeSrc: string | null; // This will now be the potentially proxied URL or data URI
-  actualLoadedUrl: string; // The original URL for display purposes
+  iframeSrc: string | null;
+  actualLoadedUrl: string;
   isPagePreviewVisible: boolean;
   executionLog: string[];
   isRunningTest: boolean;
   isInternalTestPage: boolean;
-  isProxyEnabled: boolean; // New prop
+  isProxyEnabled: boolean;
   onClearLog: () => void;
 }
 
@@ -383,151 +384,129 @@ const WebPreviewPanel = React.memo<WebPreviewPanelProps>(({
   if (isInternalTestPage) {
     pageTypeQualifier = t('createTestPage.webPreviewPanel.internalPageQualifier');
   } else if (iframeSrc) {
-    if (iframeSrc.startsWith(PROXY_PREFIX)) {
-      pageTypeQualifier = t('createTestPage.webPreviewPanel.proxiedPageQualifier');
-    } else if (iframeSrc.startsWith('http') && !isProxyEnabled) {
-      pageTypeQualifier = t('createTestPage.webPreviewPanel.externalPageNoProxyWarningShort');
+    if (iframeSrc.startsWith('data:')) {
+      pageTypeQualifier = t('createTestPage.webPreviewPanel.screenshotQualifier');
     } else if (iframeSrc.startsWith('file')) {
-       pageTypeQualifier = t('createTestPage.webPreviewPanel.externalPageWarningShort'); // For file URLs
+      pageTypeQualifier = t('createTestPage.webPreviewPanel.externalPageWarningShort');
     }
   }
 
-
   return (
-    <section className={`h-full flex flex-col text-sm ${theme === 'light' ? 'bg-white' : 'bg-slate-800'}`}>
-      <div className={`flex justify-between items-center p-4 pb-2 ${theme === 'light' ? 'border-b border-slate-200' : 'border-b border-slate-700'}`}>
-        <h3 className={`text-md font-semibold ${theme === 'light' ? 'text-sky-700' : 'text-sky-400'}`}>{t('createTestPage.webPreviewPanel.title')}</h3>
-        <button
-          onClick={onClearLog}
-          title={t('createTestPage.webPreviewPanel.clearLogButton')}
-          className={`text-xs px-2 py-1 rounded flex items-center
-                      ${theme === 'light'
-                        ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                        : 'text-gray-400 hover:text-gray-200 hover:bg-slate-700'}`}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5 mr-1">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12.56 0c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09.997-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-          </svg>
-          {t('general.clear')}
-        </button>
+    <div className={`flex flex-col h-full ${theme === 'light' ? 'bg-white' : 'bg-slate-800'}`}>
+      <div className="p-4 border-b">
+        <h2 className="text-lg font-semibold mb-2">{t('createTestPage.webPreviewPanel.title')}</h2>
+        <p className="text-sm text-gray-500">
+          {displayUrl}
+          {pageTypeQualifier && ` (${pageTypeQualifier})`}
+        </p>
       </div>
+
       {isPagePreviewVisible && iframeSrc ? (
-        <iframe
-          id={IFRAME_PREVIEW_ID}
-          key={iframeSrc} // Important to re-render iframe on src change
-          src={iframeSrc}
-          title={t('createTestPage.webPreviewPanel.title')}
-          className="w-full h-4/5 border-0 flex-grow"
-          sandbox="allow-scripts allow-forms allow-popups allow-same-origin" 
-        />
+        isInternalTestPage || actualLoadedUrl.includes('/gstd/gstd-report') ? (
+          <iframe
+            id={IFRAME_PREVIEW_ID}
+            key={iframeSrc}
+            src={iframeSrc}
+            title={t('createTestPage.webPreviewPanel.title')}
+            className="w-full h-4/5 border-0 flex-grow"
+            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+          />
+        ) : (
+          <img
+            src={iframeSrc}
+            alt="Page preview"
+            className="w-full h-4/5 object-contain flex-grow"
+          />
+        )
       ) : (
         <div className={`w-full h-4/5 flex-grow flex items-center justify-center p-4
-                         ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
+                       ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
           {isPagePreviewVisible ? t('createTestPage.webPreviewPanel.loadingPreview') : t('createTestPage.webPreviewPanel.loadPagePrompt')}
         </div>
       )}
-      <div className={`h-1/5 p-4 border-t-2 overflow-y-auto ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
-        {isPagePreviewVisible && <p className={`${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>
-            {t('createTestPage.webPreviewPanel.previewFor', { urlForDisplay: displayUrl })}
-            {pageTypeQualifier && ` ${pageTypeQualifier}`}
-        </p>}
-        {!isPagePreviewVisible && <p className={`${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>{t('createTestPage.webPreviewPanel.noPreviewLoaded')}</p>}
 
-        {executionLog.slice().reverse().map((log, index) => (
-          <p key={index} className={`mb-1
-            ${log.toUpperCase().startsWith(t('general.error').toUpperCase()) ? (theme === 'light' ? 'text-red-600' : 'text-red-400') 
-            : log.toUpperCase().startsWith(t('general.warning').toUpperCase()) ? (theme === 'light' ? 'text-yellow-600' : 'text-yellow-400')
-            : log.startsWith(t('createTestPage.logs.testResultSuccess')) ? (theme === 'light' ? 'text-green-600 font-semibold' : 'text-green-400 font-semibold')
-            : log.startsWith(t('createTestPage.logs.testResultFailed')) ? (theme === 'light' ? 'text-red-600 font-semibold' : 'text-red-400 font-semibold')
-            : (theme === 'light' ? 'text-slate-600' : 'text-gray-300')}`}>
+      <div className="h-1/5 p-4 border-t overflow-y-auto">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-semibold">{t('createTestPage.webPreviewPanel.executionLog')}</h3>
+          <button
+            onClick={onClearLog}
+            className={`text-sm px-2 py-1 rounded ${
+              theme === 'light'
+                ? 'text-gray-600 hover:bg-gray-100'
+                : 'text-gray-400 hover:bg-slate-700'
+            }`}
+          >
+            {t('createTestPage.webPreviewPanel.clearLog')}
+          </button>
+        </div>
+        {executionLog.map((log, index) => (
+          <div
+            key={index}
+            className={`text-sm mb-1 ${
+              log.includes('ERROR')
+                ? 'text-red-500'
+                : log.includes('WARNING')
+                ? 'text-yellow-500'
+                : theme === 'light'
+                ? 'text-gray-600'
+                : 'text-gray-400'
+            }`}
+          >
             {log}
-          </p>
+          </div>
         ))}
-        {isRunningTest && <p className={`${theme === 'light' ? 'text-green-600' : 'text-green-400'} animate-pulse`}>{t('createTestPage.webPreviewPanel.runningTestIndicator')}</p>}
       </div>
-    </section>
+    </div>
   );
 });
 
 export interface CreateTestPageProps {
-  url: string; // This is the original URL input by the user
-  setUrl: React.Dispatch<React.SetStateAction<string>>;
-  iframeSrc: string | null; // This is the URL for the iframe's src attribute (potentially proxied or data URI)
-  setIframeSrc: React.Dispatch<React.SetStateAction<string | null>>;
+  url: string;
+  setUrl: Dispatch<SetStateAction<string>>;
+  iframeSrc: string | null;
+  setIframeSrc: Dispatch<SetStateAction<string | null>>;
   isLoadingPage: boolean;
-  setIsLoadingPage: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsLoadingPage: Dispatch<SetStateAction<boolean>>;
   isPagePreviewVisible: boolean;
-  setIsPagePreviewVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsPagePreviewVisible: Dispatch<SetStateAction<boolean>>;
   detectedElements: DetectedElement[];
-  setDetectedElements: React.Dispatch<React.SetStateAction<DetectedElement[]>>;
+  setDetectedElements: Dispatch<SetStateAction<DetectedElement[]>>;
   isDetectingElements: boolean;
-  setIsDetectingElements: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsDetectingElements: Dispatch<SetStateAction<boolean>>;
   testSteps: TestStep[];
-  setTestSteps: React.Dispatch<React.SetStateAction<TestStep[]>>;
+  setTestSteps: Dispatch<SetStateAction<TestStep[]>>;
   currentTestName: string;
-  setCurrentTestName: React.Dispatch<React.SetStateAction<string>>;
+  setCurrentTestName: Dispatch<SetStateAction<string>>;
   currentTestId: string | null;
-  setCurrentTestId: React.Dispatch<React.SetStateAction<string | null>>;
+  setCurrentTestId: Dispatch<SetStateAction<string | null>>;
   isRunningTest: boolean;
-  setIsRunningTest: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsRunningTest: Dispatch<SetStateAction<boolean>>;
   executionLog: string[];
-  setExecutionLog: React.Dispatch<React.SetStateAction<string[]>>;
+  setExecutionLog: Dispatch<SetStateAction<string[]>>;
   savedTests: SavedTest[];
-  setSavedTests: React.Dispatch<React.SetStateAction<SavedTest[]>>;
+  setSavedTests: Dispatch<SetStateAction<SavedTest[]>>;
   onDeleteTestInPage: (testId: string) => void;
-  isProxyEnabled: boolean; // New prop
+  isProxyEnabled: boolean;
 }
 
 export const getElementCssSelector = (element: HTMLElement): string => {
-  if (!element || !element.ownerDocument) return ''; 
-  const doc = element.ownerDocument;
-
-  if (element.id) {
-    const sanitizedId = element.id.replace(/[^a-zA-Z0-9_-]/g, (match) => {
-        if ([':', '.'].includes(match)) return `\\${match}`;
-        return '_';
-    });
-    if (sanitizedId && !/^\d/.test(sanitizedId)) { 
-         try {
-            if (doc.querySelector(`#${sanitizedId}`) === element) return `#${sanitizedId}`;
-         } catch (e) { /* ignore, invalid selector characters might still cause issues */ }
+  let parent: Element | null = element;
+  let selector = '';
+  while (parent && parent !== document.body) {
+    const child = parent as Element;
+    parent = parent.parentElement;
+    if (!parent) break;
+    
+    const siblings = Array.from(parent.children);
+    if (siblings.length === 1) {
+      selector = `${parent.tagName.toLowerCase()} > ${child.tagName.toLowerCase()}${selector ? ' > ' + selector : ''}`;
+      continue;
     }
+    
+    const index = siblings.indexOf(child) + 1;
+    selector = `${parent.tagName.toLowerCase()} > ${child.tagName.toLowerCase()}:nth-child(${index})${selector ? ' > ' + selector : ''}`;
   }
-  const dataTestId = element.getAttribute('data-testid');
-  if (dataTestId) return `[data-testid="${dataTestId}"]`;
-  if (['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(element.tagName)) {
-    const nameAttr = element.getAttribute('name');
-    if (nameAttr) return `${element.tagName.toLowerCase()}[name="${nameAttr}"]`;
-  }
-  if (element.tagName === 'INPUT' && (element as HTMLInputElement).type) {
-    const type = (element as HTMLInputElement).type;
-    if (type && type !== 'hidden') return `input[type="${type}"]`;
-  }
-  let path = '';
-  let currentElement: Element | null = element;
-  while (currentElement && currentElement.tagName !== 'BODY' && currentElement.tagName !== 'HTML') {
-    let segment = currentElement.tagName.toLowerCase();
-    const id = currentElement.id;
-    if (id) {
-        const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
-        if (sanitizedId && !/^\d/.test(sanitizedId)) {
-            segment = `#${sanitizedId}`; 
-            path = segment + (path ? ' > ' + path : '');
-            break; 
-        }
-    }
-    const parent = currentElement.parentElement;
-    if (parent) {
-        const siblings = Array.from(parent.children).filter(child => child.tagName === currentElement!.tagName);
-        if (siblings.length > 1) {
-            const index = siblings.indexOf(currentElement) + 1;
-            segment += `:nth-of-type(${index})`;
-        }
-    }
-    path = segment + (path ? ' > ' + path : '');
-    currentElement = parent;
-  }
-  return path || element.tagName.toLowerCase(); 
+  return selector;
 };
 
 export const getElementUserFriendlyName = (element: HTMLElement, tagName: string): string => {
@@ -670,14 +649,8 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
     let srcToLoad: string;
     if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-      if (isProxyEnabled) {
-        srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(trimmedUrl)}`;
-        log('createTestPage.logs.usingProxyForUrl', { url: trimmedUrl });
-      } else {
-        srcToLoad = trimmedUrl;
-        log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl }, 'warning');
-        setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
-      }
+      srcToLoad = trimmedUrl;
+      log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl });
     } else if (trimmedUrl.startsWith('file:///')) {
       srcToLoad = trimmedUrl;
       log('createTestPage.logs.loadingFileUrl', { url: trimmedUrl });
@@ -695,13 +668,17 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         setIframeSrc(srcToLoad);
         setIsPagePreviewVisible(true);
         setDetectedElements([]);
+        // Imposta come pagina interna se è GSTD per forzare l'uso dell'iframe
+        if (trimmedUrl.includes('/gstd/gstd-report')) {
+          setIsInternalTestPageLoaded(true);
+        }
         if (!currentTestId) { 
             setTestSteps([]);
             setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
         }
     }, 100); 
 
-  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, isProxyEnabled]);
+  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, setIsInternalTestPageLoaded]);
 
   const handleLoadInternalTestPage = useCallback(() => {
     setIsLoadingPage(true);
@@ -738,14 +715,9 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [iframeSrc, isInternalTestPageLoaded, log, setIsLoadingPage, isProxyEnabled]);
 
 
-  const handleDetectElements = useCallback(() => {
+  const handleDetectElements = useCallback(async () => {
     console.log(`[DEBUG] handleDetectElements called. isInternalTestPageLoaded: ${isInternalTestPageLoaded}, isPagePreviewVisible: ${isPagePreviewVisible}, iframeSrc: ${iframeSrc}, isLoadingPage: ${isLoadingPage}`);
-    if (!isProxyEnabled && url.startsWith('http') && !isInternalTestPageLoaded) {
-       setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
-    } else {
-       setElementDetectionError(null);
-    }
-
+    
     if (isLoadingPage) {
       log('createTestPage.logs.waitingForPageLoadBeforeDetect', undefined, 'warning');
       alert(t('createTestPage.alerts.pageStillLoading'));
@@ -759,98 +731,177 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     }
     
     setIsDetectingElements(true);
-    const sourceName = isInternalTestPageLoaded ? t('general.internalTestPageName') : ( (iframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled) ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length)) : iframeSrc );
+    const sourceName = isInternalTestPageLoaded ? t('general.internalTestPageName') : iframeSrc;
     log('createTestPage.logs.detectingElementsFrom', { source: sourceName });
     console.log(`[DEBUG] Starting element detection from: ${sourceName}`);
     setDetectedElements([]);
 
-    setTimeout(() => {
-      const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-      console.log("[DEBUG] [DetectElements Timeout] iframe element:", iframe);
-      if (!iframe) {
-        log('createTestPage.logs.errorIframeNotFound', undefined, 'error');
-        console.error("[DEBUG] [DetectElements Timeout] Iframe not found.");
-        setIsDetectingElements(false);
-        return;
-      }
+    try {
+      // Per le pagine interne, manteniamo la logica esistente
+      if (isInternalTestPageLoaded) {
+        // Mantieni la logica esistente per le pagine interne
+        setTimeout(() => {
+          const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+          console.log("[DEBUG] [DetectElements Timeout] iframe element:", iframe);
+          if (!iframe) {
+            log('createTestPage.logs.errorIframeNotFound', undefined, 'error');
+            console.error("[DEBUG] [DetectElements Timeout] Iframe not found.");
+            setIsDetectingElements(false);
+            return;
+          }
 
-      try {
-        const iframeDocument = iframe.contentDocument || iframe.contentWindow?.document;
-        console.log("[DEBUG] [DetectElements Timeout] iframeDocument:", iframeDocument);
-        if (isInternalTestPageLoaded) {
-            console.log("[DEBUG] [DetectElements Timeout] Attempting detection on INTERNAL TEST PAGE.");
-            if (iframeDocument && iframeDocument.body) {
-                console.log("[DEBUG] [DetectElements Timeout] Internal page body outerHTML (first 200 chars):", iframeDocument.body.outerHTML.substring(0, 200));
-                console.log("[DEBUG] [DetectElements Timeout] Internal page readyState:", iframeDocument.readyState);
-            } else if (iframeDocument) {
-                 console.warn("[DEBUG] [DetectElements Timeout] Internal page iframeDocument exists, but body is null/undefined.");
+          try {
+            const iframeDocument = iframe.contentDocument || iframe.contentWindow?.document;
+            console.log("[DEBUG] [DetectElements Timeout] iframeDocument:", iframeDocument);
+            if (isInternalTestPageLoaded) {
+                console.log("[DEBUG] [DetectElements Timeout] Attempting detection on INTERNAL TEST PAGE.");
+                if (iframeDocument && iframeDocument.body) {
+                    console.log("[DEBUG] [DetectElements Timeout] Internal page body outerHTML (first 200 chars):", iframeDocument.body.outerHTML.substring(0, 200));
+                    console.log("[DEBUG] [DetectElements Timeout] Internal page readyState:", iframeDocument.readyState);
+                } else if (iframeDocument) {
+                     console.warn("[DEBUG] [DetectElements Timeout] Internal page iframeDocument exists, but body is null/undefined.");
+                }
             }
-        }
 
-        if (!iframeDocument) {
-          log('createTestPage.logs.errorAccessingIframeDom', { source: sourceName }, 'error');
-          console.error(`[DEBUG] [DetectElements Timeout] Cannot access iframe DOM from: ${sourceName}`);
-          setElementDetectionError(
-            (!isProxyEnabled && url.startsWith('http') && !isInternalTestPageLoaded) 
-            ? t('createTestPage.elementsPanel.externalPageNoProxyLimitations')
-            : t('createTestPage.elementsPanel.detectionFailedGeneralHelp')
-          );
-          setIsDetectingElements(false);
-          return;
-        }
-        log('createTestPage.logs.iframeAccessSuccessScanning', { source: sourceName });
-        const foundHtmlElements = iframeDocument.querySelectorAll('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
-        console.log("[DEBUG] [DetectElements Timeout] foundHtmlElements length:", foundHtmlElements.length);
-        if (isInternalTestPageLoaded && foundHtmlElements.length === 0 && iframeDocument.body) {
-            console.warn("[DEBUG] [DetectElements Timeout] Query selector found 0 elements on internal page, but body content exists. Check selector string and page content.");
-        }
-        
-        const newDetectedElements: DetectedElement[] = [];
-        const tempSelectors = new Set<string>();
+            if (!iframeDocument) {
+              log('createTestPage.logs.errorAccessingIframeDom', { source: sourceName }, 'error');
+              console.error(`[DEBUG] [DetectElements Timeout] Cannot access iframe DOM from: ${sourceName}`);
+              setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
+              setIsDetectingElements(false);
+              return;
+            }
+            log('createTestPage.logs.iframeAccessSuccessScanning', { source: sourceName });
+            const foundHtmlElements = iframeDocument.querySelectorAll('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
+            console.log("[DEBUG] [DetectElements Timeout] foundHtmlElements length:", foundHtmlElements.length);
+            if (isInternalTestPageLoaded && foundHtmlElements.length === 0 && iframeDocument.body) {
+                console.warn("[DEBUG] [DetectElements Timeout] Query selector found 0 elements on internal page, but body content exists. Check selector string and page content.");
+            }
+            
+            const newDetectedElements: DetectedElement[] = [];
+            const tempSelectors = new Set<string>();
 
-        foundHtmlElements.forEach((htmlEl, index) => {
-          const element = htmlEl as HTMLElement;
-          const tagName = element.tagName.toUpperCase();
-          if (['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD', 'TITLE'].includes(tagName)) return;
-          const name = getElementUserFriendlyName(element, tagName);
-          const selector = getElementCssSelector(element);
-          let elId = `el_${selector.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}`;
-          if (tempSelectors.has(elId)) elId = `${elId}_${Math.random().toString(36).substring(2, 5)}`;
-          tempSelectors.add(elId);
-          const attributes: Record<string, string> = {};
-          if (element.id) attributes.id = element.id;
-          if (element.getAttribute('name')) attributes.name = element.getAttribute('name')!;
-          if ((element as HTMLInputElement).type) attributes.type = (element as HTMLInputElement).type;
-          if (element.getAttribute('placeholder')) attributes.placeholder = element.getAttribute('placeholder')!;
-          if (element.getAttribute('aria-label')) attributes['aria-label'] = element.getAttribute('aria-label')!;
-          if (element.getAttribute('data-testid')) attributes['data-testid'] = element.getAttribute('data-testid')!;
-          newDetectedElements.push({ id: elId, name, tagName, attributes, selector });
-        });
+            foundHtmlElements.forEach((htmlEl, index) => {
+              const element = htmlEl as HTMLElement;
+              const tagName = element.tagName.toUpperCase();
+              if (['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD', 'TITLE'].includes(tagName)) return;
+              const name = getElementUserFriendlyName(element, tagName);
+              const selector = getElementCssSelector(element);
+              let elId = `el_${selector.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}`;
+              if (tempSelectors.has(elId)) elId = `${elId}_${Math.random().toString(36).substring(2, 5)}`;
+              tempSelectors.add(elId);
+              const attributes: Record<string, string> = {};
+              if (element.id) attributes.id = element.id;
+              if (element.className && typeof element.className === 'string') attributes.class = element.className;
+              if (element.getAttribute('data-testid')) attributes['data-testid'] = element.getAttribute('data-testid')!;
+              if (element.getAttribute('role')) attributes.role = element.getAttribute('role')!;
+              if (element.getAttribute('name')) attributes.name = element.getAttribute('name')!;
+              if (element.getAttribute('type')) attributes.type = element.getAttribute('type')!;
+              if (element.getAttribute('value')) attributes.value = element.getAttribute('value')!;
+              if (element.getAttribute('placeholder')) attributes.placeholder = element.getAttribute('placeholder')!;
+              if (element.getAttribute('href')) attributes.href = element.getAttribute('href')!;
+              if (element.getAttribute('src')) attributes.src = element.getAttribute('src')!;
+              if (element.getAttribute('alt')) attributes.alt = element.getAttribute('alt')!;
+              if (element.getAttribute('title')) attributes.title = element.getAttribute('title')!;
+              if (element.getAttribute('aria-label')) attributes['aria-label'] = element.getAttribute('aria-label')!;
+              
+              newDetectedElements.push({
+                id: elId,
+                name,
+                tagName,
+                selector,
+                attributes,
+                text: element.textContent || undefined
+              });
+            });
 
-        setDetectedElements(newDetectedElements);
-        const sourceDetailsKey = isInternalTestPageLoaded ? 'createTestPage.logs.detectingElementsFromInternalPage' : 'createTestPage.logs.detectingElementsFromPage';
-        if (newDetectedElements.length > 0) {
-          log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: t(sourceDetailsKey) });
-          console.log(`[DEBUG] [DetectElements Timeout] Detected ${newDetectedElements.length} elements.`);
+            if (newDetectedElements.length > 0) {
+              setDetectedElements(newDetectedElements);
+              const sourceDetails = isInternalTestPageLoaded ? t('general.internalTestPageName') : sourceName;
+              log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails });
+              console.log(`[DEBUG] [DetectElements Timeout] Detected ${newDetectedElements.length} elements.`);
+            } else {
+              log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
+              console.warn(`[DEBUG] [DetectElements Timeout] No interactive elements found for ${sourceName}.`);
+            }
+          } catch (error) {
+            console.error("[DEBUG] [DetectElements Timeout] Error during iframe DOM access or element processing:", error);
+            log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
+            setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
+            setDetectedElements([]);
+          } finally {
+            setIsDetectingElements(false);
+            console.log("[DEBUG] [DetectElements Timeout] Detection process finished.");
+          }
+        }, 500);
+      } else {
+        // Per le pagine esterne, usa l'API backend
+        if (url.includes('/gstd/gstd-report')) {
+          // Per GSTD, usa l'API scanElements con sessionId 'direct-request'
+          const elements = await apiService.scanElements('direct-request');
+          
+          const newDetectedElements: DetectedElement[] = elements.map((el: any, index: number) => {
+            const elId = `el_${el.selector?.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}` || `el_${index}`;
+            return {
+              id: elId,
+              name: el.name || el.tagName || 'Unknown Element',
+              tagName: el.tagName || 'DIV',
+              selector: el.selector || '',
+              attributes: el.attributes || {},
+              text: el.text
+            };
+          });
+          
+          setDetectedElements(newDetectedElements);
+          if (newDetectedElements.length > 0) {
+            log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
+            console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via backend API.`);
+          } else {
+            log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
+            console.warn(`[DEBUG] No interactive elements found for ${sourceName}.`);
+          }
         } else {
-          log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: t(sourceDetailsKey) }, 'warning');
-          console.warn(`[DEBUG] [DetectElements Timeout] No interactive elements found for ${sourceDetailsKey}.`);
+          // Per altre pagine esterne, prima carica la pagina nel backend e poi rileva gli elementi
+          log('createTestPage.logs.loadingPageInBackend', { url }, 'info');
+          const { sessionId } = await apiService.loadPage(url);
+          
+          const elements = await apiService.scanElements(sessionId);
+          
+          const newDetectedElements: DetectedElement[] = elements.map((el: any, index: number) => {
+            const elId = `el_${el.selector?.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}` || `el_${index}`;
+            return {
+              id: elId,
+              name: el.name || el.tagName || 'Unknown Element',
+              tagName: el.tagName || 'DIV',
+              selector: el.selector || '',
+              attributes: el.attributes || {},
+              text: el.text
+            };
+          });
+          
+          setDetectedElements(newDetectedElements);
+          if (newDetectedElements.length > 0) {
+            log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
+            console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via backend API.`);
+          } else {
+            log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
+            console.warn(`[DEBUG] No interactive elements found for ${sourceName}.`);
+          }
+          
+          // Chiudi la sessione backend se non è quella diretta
+          if (sessionId !== 'direct-request') {
+            await apiService.closeSession(sessionId);
+          }
         }
-      } catch (error) {
-        console.error("[DEBUG] [DetectElements Timeout] Error during iframe DOM access or element processing:", error);
-        log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
-        setElementDetectionError(
-            (!isProxyEnabled && url.startsWith('http') && !isInternalTestPageLoaded) 
-            ? t('createTestPage.elementsPanel.externalPageNoProxyLimitations')
-            : t('createTestPage.elementsPanel.detectionFailedGeneralHelp')
-        );
-        setDetectedElements([]);
-      } finally {
-        setIsDetectingElements(false);
-        console.log("[DEBUG] [DetectElements Timeout] Detection process finished.");
       }
-    }, 500); // 500ms timeout before attempting detection
-  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, isInternalTestPageLoaded, setElementDetectionError, isProxyEnabled, url, isLoadingPage]);
+    } catch (error) {
+      console.error("[DEBUG] Error during backend element detection:", error);
+      log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
+      setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
+      setDetectedElements([]);
+    } finally {
+      setIsDetectingElements(false);
+    }
+  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, isInternalTestPageLoaded, setElementDetectionError, isLoadingPage, url]);
 
   const handleRunTest = useCallback(async () => {
     if (testSteps.length === 0) {
@@ -1003,7 +1054,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     setCurrentExecutingStepId(null);
   }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isInternalTestPageLoaded, setIsInternalTestPageLoaded, isProxyEnabled, setElementDetectionError]);
 
-  const handleSaveTest = useCallback(() => {
+  const handleSaveTestLocal = useCallback(async () => {
     if (testSteps.length === 0) {
       alert(t('createTestPage.alerts.noStepsToSave')); return;
     }
@@ -1013,8 +1064,9 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         id: currentTestId, name: currentTestName || t('createTestPage.testCanvas.newTestNameDefault'), steps: testSteps,
         url: testUrlToSave, createdAt: savedTests.find(tst => tst.id === currentTestId)?.createdAt || new Date().toISOString(),
       };
-      updateTestInLocalStorage(updatedTest);
-      setSavedTests(loadAllTestsFromLocalStorage());
+      await updateTestInLocalStorage(updatedTest);
+      const updatedTests = await loadAllTestsFromLocalStorage();
+      setSavedTests(updatedTests);
       alert(t('createTestPage.alerts.testUpdated', { name: updatedTest.name }));
     } else {
       setSaveTestNameInput(currentTestName === t('createTestPage.testCanvas.newTestNameDefault') ? '' : currentTestName);
@@ -1022,15 +1074,28 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     }
   }, [testSteps, currentTestId, savedTests, currentTestName, url, setSavedTests, t]);
 
-  const confirmSaveNewTest = useCallback(() => {
+  const handleSaveTestRemote = useCallback(async () => {
+    try {
+      const savedTest = await apiService.saveTest(currentTestName, testSteps, url);
+      setSavedTests(prev => [...prev, savedTest]);
+      setCurrentTestId(savedTest.id);
+      log('createTestPage.logs.testSaved', { name: savedTest.name });
+    } catch (error) {
+      console.error('Error saving test:', error);
+      log('createTestPage.logs.errorSavingTest', { error: String(error) }, 'error');
+    }
+  }, [currentTestName, testSteps, url, setSavedTests, setCurrentTestId, log]);
+
+  const confirmSaveNewTest = useCallback(async () => {
     if (!saveTestNameInput.trim()) {
       alert(t('createTestPage.alerts.enterTestName')); return;
     }
     const testUrlToSave = url; 
-    const newTest = saveTestToLocalStorage(saveTestNameInput.trim(), testSteps, testUrlToSave);
+    const newTest = await saveTestToLocalStorage(saveTestNameInput.trim(), testSteps, testUrlToSave);
     setCurrentTestName(newTest.name);
     setCurrentTestId(newTest.id);
-    setSavedTests(loadAllTestsFromLocalStorage());
+    const updatedTests = await loadAllTestsFromLocalStorage();
+    setSavedTests(updatedTests);
     setShowSaveModal(false);
     setSaveTestNameInput('');
     alert(t('createTestPage.alerts.testSaved', { name: newTest.name }));
@@ -1198,16 +1263,68 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     }
   }, [iframeSrc, handleIframeLoadOrError]);
 
+  const handleLoadSavedTests = useCallback(async () => {
+    try {
+      const loadedTests = await apiService.getAllTests();
+      setSavedTests(loadedTests);
+    } catch (error) {
+      console.error('Error loading tests:', error);
+    }
+  }, [setSavedTests]);
+
+  const loadTest = useCallback((testToLoad: SavedTest) => {
+    setUrl(testToLoad.url || '');
+    let srcToLoad = '';
+
+    if (testToLoad.url === "internal://test-page") {
+        srcToLoad = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
+        setIsInternalTestPageLoaded(true);
+    } else if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
+        srcToLoad = testToLoad.url;
+        setIsInternalTestPageLoaded(false);
+    } else if (testToLoad.url) { 
+        srcToLoad = testToLoad.url; // e.g. file:///
+        setIsInternalTestPageLoaded(false);
+        setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
+    }
+
+    setIframeSrc(srcToLoad);
+    setIsPagePreviewVisible(!!srcToLoad);
+    
+    setTestSteps(testToLoad.steps);
+    setCurrentTestName(testToLoad.name);
+    setCurrentTestId(testToLoad.id);
+    setDetectedElements([]);
+    
+    let logKey = 'createTestPage.logs.testLoadedNoUrl';
+    let params: Record<string,string|number|undefined> = { name: testToLoad.name };
+    if (testToLoad.url === "internal://test-page") {
+        logKey = 'createTestPage.logs.testLoadedInternal';
+    } else if (testToLoad.url) {
+        logKey = 'createTestPage.logs.testLoadedWithUrl'; 
+        params.url = testToLoad.url;
+    }
+    log(logKey, params);
+    setShowLoadModal(false);
+  }, [setUrl, setIframeSrc, setIsPagePreviewVisible, setTestSteps, setCurrentTestName, setCurrentTestId, setDetectedElements, log, setIsInternalTestPageLoaded, setElementDetectionError, t]);
 
   return (
     <div className="flex flex-col h-full">
       <Header
-        url={url} setUrl={setUrl} isLoadingPage={isLoadingPage} isRunningTest={isRunningTest}
-        handleLoadUrl={handleLoadUrl} handleLoadInternalTestPage={handleLoadInternalTestPage}
-        isPagePreviewVisible={isPagePreviewVisible} isDetectingElements={isDetectingElements}
-        handleDetectElements={handleDetectElements} // Passata direttamente
-        testStepsCount={testSteps.length} handleRunTest={handleRunTest}
-        handleSaveTest={handleSaveTest} currentTestId={currentTestId} onShowLoadModal={handleShowLoadModal}
+        url={url}
+        setUrl={setUrl}
+        isLoadingPage={isLoadingPage}
+        isRunningTest={isRunningTest}
+        handleLoadUrl={handleLoadUrl}
+        handleLoadInternalTestPage={handleLoadInternalTestPage}
+        isPagePreviewVisible={isPagePreviewVisible}
+        isDetectingElements={isDetectingElements}
+        handleDetectElements={handleDetectElements}
+        testStepsCount={testSteps.length}
+        handleRunTest={handleRunTest}
+        onSaveTest={handleSaveTestLocal}
+        currentTestId={currentTestId}
+        onShowLoadModal={() => setShowLoadModal(true)}
       />
       <main className="flex-grow flex overflow-hidden">
         <ActionsPanel onDragStartAction={onDragStartAction} naturalLanguageInput={naturalLanguageInput} setNaturalLanguageInput={setNaturalLanguageInput} handleGenerateNLPSteps={handleGenerateNLPSteps} isGeneratingNLPSteps={isGeneratingNLPSteps} />

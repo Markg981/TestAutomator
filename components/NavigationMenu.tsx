@@ -2,6 +2,7 @@ import React from 'react';
 import { Page } from '../types';
 import { useTheme } from '../ThemeContext';
 import { useLocalization } from '../LocalizationContext'; // Import useLocalization
+import { useAuth } from '../AuthContext';
 
 interface NavigationMenuProps {
   currentPage: Page;
@@ -53,16 +54,39 @@ const IconSettings = () => (
   </svg>
 );
 
-
 export const NavigationMenu: React.FC<NavigationMenuProps> = ({ currentPage, setCurrentPage }) => {
   const { theme } = useTheme();
-  const { t } = useLocalization(); // Use localization
+  const { t } = useLocalization();
+  const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
 
   return (
     <nav className={`w-60 p-4 space-y-2 h-full flex-shrink-0 shadow-lg ${theme === 'light' ? 'bg-slate-100 border-r border-slate-300' : 'bg-slate-800'}`}>
       <div className={`text-2xl font-bold mb-6 text-center ${theme === 'light' ? 'text-sky-600' : 'text-sky-400'}`}>
         {t('navigation.title')}
       </div>
+
+      {/* User Info */}
+      <div className={`mb-6 p-4 rounded-lg ${theme === 'light' ? 'bg-white shadow-sm' : 'bg-slate-700'}`}>
+        <div className={`text-sm font-medium ${theme === 'light' ? 'text-slate-600' : 'text-gray-300'}`}>
+          {t('navigation.loggedInAs')}
+        </div>
+        <div className={`text-base font-semibold ${theme === 'light' ? 'text-slate-800' : 'text-white'}`}>
+          {user?.username}
+        </div>
+        <div className={`text-xs ${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>
+          {user?.email}
+        </div>
+      </div>
+
+      {/* Navigation Items */}
       <NavItem
         page={Page.DASHBOARD}
         currentPage={currentPage}
@@ -95,6 +119,27 @@ export const NavigationMenu: React.FC<NavigationMenuProps> = ({ currentPage, set
         icon={<IconSettings />}
         theme={theme}
       />
+
+      {/* Logout Button */}
+      <div className="mt-auto pt-4">
+        <button
+          onClick={handleLogout}
+          className={`w-full p-2 rounded-lg text-left flex items-center space-x-2 transition-colors
+            ${theme === 'light'
+              ? 'text-red-600 hover:bg-red-50'
+              : 'text-red-400 hover:bg-slate-700'}`}
+        >
+          <IconLogout />
+          <span>{t('navigation.logout')}</span>
+        </button>
+      </div>
     </nav>
   );
 };
+
+// Add Logout Icon
+const IconLogout = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 6.707 6.293a1 1 0 00-1.414 1.414L8.586 11l-3.293 3.293a1 1 0 101.414 1.414L10 12.414l3.293 3.293a1 1 0 001.414-1.414L11.414 11l3.293-3.293z" clipRule="evenodd" />
+  </svg>
+);

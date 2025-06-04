@@ -3,36 +3,52 @@ import { Page, SavedTest, TestStep, DetectedElement } from './types';
 import { NavigationMenu } from './components/NavigationMenu';
 import { DashboardPage } from './pages/DashboardPage';
 import { CreateTestPage, CreateTestPageProps } from './pages/CreateTestPage';
-import { RecordTestPage, RecordTestPageProps } from './pages/RecordTestPage'; // Import RecordTestPageProps
+import { RecordTestPage, RecordTestPageProps } from './pages/RecordTestPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
 import { loadAllTestsFromLocalStorage, deleteTestFromLocalStorage } from './services/testStorageService';
 import { useTheme } from './ThemeContext';
-import { useLocalization } from './LocalizationContext'; // Import useLocalization
+import { useLocalization } from './LocalizationContext';
+import { useAuth } from './AuthContext';
 
 const App: React.FC = () => {
   const { theme } = useTheme();
-  const { t, locale } = useLocalization(); // Get t and locale
+  const { t, locale } = useLocalization();
+  const { user, loading: authLoading } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>(Page.DASHBOARD);
   const [savedTests, setSavedTests] = useState<SavedTest[]>([]);
+  const [isLoadingTests, setIsLoadingTests] = useState(true);
 
-  const [url, setUrl] = useState<string>('https://www.google.com');
+  const [url, setUrl] = useState<string>('https://localhost:62701/gstd/gstd-report');
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
   const [isLoadingPage, setIsLoadingPage] = useState<boolean>(false);
   const [isPagePreviewVisible, setIsPagePreviewVisible] = useState<boolean>(false);
   const [detectedElements, setDetectedElements] = useState<DetectedElement[]>([]);
   const [isDetectingElements, setIsDetectingElements] = useState<boolean>(false);
   const [testSteps, setTestSteps] = useState<TestStep[]>([]);
-  const [currentTestName, setCurrentTestName] = useState<string>(t('createTestPage.testCanvas.newTestNameDefault')); // Default new test name
+  const [currentTestName, setCurrentTestName] = useState<string>(t('createTestPage.testCanvas.newTestNameDefault'));
   const [currentTestId, setCurrentTestId] = useState<string | null>(null);
   const [isRunningTest, setIsRunningTest] = useState<boolean>(false);
   const [executionLog, setExecutionLog] = useState<string[]>([]);
   const [isProxyEnabled, setIsProxyEnabled] = useState<boolean>(() => {
     const storedProxySetting = localStorage.getItem('appProxyEnabled');
-    return storedProxySetting ? JSON.parse(storedProxySetting) : true; // Default to true
+    return storedProxySetting ? JSON.parse(storedProxySetting) : true;
   });
 
   useEffect(() => {
-    setSavedTests(loadAllTestsFromLocalStorage());
+    const loadTests = async () => {
+      setIsLoadingTests(true);
+      try {
+        const tests = await loadAllTestsFromLocalStorage();
+        setSavedTests(tests);
+      } catch (error) {
+        console.error('Error loading tests:', error);
+        setSavedTests([]);
+      } finally {
+        setIsLoadingTests(false);
+      }
+    };
+    loadTests();
   }, []);
   
   useEffect(() => {
@@ -44,7 +60,6 @@ const App: React.FC = () => {
     }
   }, [theme]);
 
-  // Update currentTestName if it's the default and locale changes
   useEffect(() => {
     if (currentTestName === translations[locale === 'it' ? 'en' : 'it'].createTestPage.testCanvas.newTestNameDefault) {
         setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
@@ -55,12 +70,10 @@ const App: React.FC = () => {
     localStorage.setItem('appProxyEnabled', JSON.stringify(isProxyEnabled));
   }, [isProxyEnabled]);
 
-
   const handleLoadTestForEditing = useCallback((testToLoad: SavedTest) => {
     setUrl(testToLoad.url || '');
-    // iframeSrc will be set by CreateTestPage based on its logic and isProxyEnabled
-    setIframeSrc(null); // Let CreateTestPage handle constructing the correct iframeSrc
-    setIsPagePreviewVisible(false); // Let CreateTestPage handle this
+    setIframeSrc(null);
+    setIsPagePreviewVisible(false);
     setTestSteps(testToLoad.steps);
     setCurrentTestName(testToLoad.name);
     setCurrentTestId(testToLoad.id);
@@ -69,56 +82,65 @@ const App: React.FC = () => {
         name: testToLoad.name, 
         url: testToLoad.url || t('createTestPage.loadModal.notAvailableUrl') 
     })]);
-    // setCurrentPage(Page.CREATE_TEST); // Navigation is handled by caller
-  }, [t, isProxyEnabled]); // Added isProxyEnabled dependency, though it's mainly used inside the page
+  }, [t]);
 
-  const handleDeleteTest = useCallback((testId: string) => {
-    // Use a translated confirmation message
+  const handleDeleteTest = useCallback(async (testId: string) => {
     if (window.confirm(t('createTestPage.logs.confirmDeleteTest'))) {
-      deleteTestFromLocalStorage(testId);
-      const updatedSavedTests = loadAllTestsFromLocalStorage();
-      setSavedTests(updatedSavedTests);
-      
-      if (currentTestId === testId) {
-        setUrl('https://www.google.com'); 
-        setIframeSrc(null);
-        setIsPagePreviewVisible(false);
-        setTestSteps([]);
-        setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
-        setCurrentTestId(null);
-        setDetectedElements([]);
-        setExecutionLog([t('createTestPage.logs.currentTestDeletedResetState')]);
+      try {
+        await deleteTestFromLocalStorage(testId);
+        const updatedSavedTests = await loadAllTestsFromLocalStorage();
+        setSavedTests(updatedSavedTests);
+        
+        if (currentTestId === testId) {
+          setUrl('https://localhost:62701/gstd/gstd-report'); 
+          setIframeSrc(null);
+          setIsPagePreviewVisible(false);
+          setTestSteps([]);
+          setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
+          setCurrentTestId(null);
+          setDetectedElements([]);
+          setExecutionLog([t('createTestPage.logs.currentTestDeletedResetState')]);
+        }
+      } catch (error) {
+        console.error('Error deleting test:', error);
       }
     }
-  }, [currentTestId, t]); // Added t to dependencies
-
+  }, [currentTestId, t]);
 
   const createTestPageProps: CreateTestPageProps = {
     url, setUrl, iframeSrc, setIframeSrc, isLoadingPage, setIsLoadingPage,
-    isPagePreviewVisible, setIsPagePreviewVisible, detectedElements, setDetectedElements,
-    isDetectingElements, setIsDetectingElements, testSteps, setTestSteps,
-    currentTestName, setCurrentTestName, currentTestId, setCurrentTestId,
-    isRunningTest, setIsRunningTest, executionLog, setExecutionLog,
+    isPagePreviewVisible, setIsPagePreviewVisible, executionLog, setExecutionLog,
     savedTests, setSavedTests, 
     onDeleteTestInPage: handleDeleteTest,
-    isProxyEnabled, // Pass down the proxy setting
+    isProxyEnabled,
+    detectedElements, setDetectedElements,
+    isDetectingElements, setIsDetectingElements,
+    testSteps, setTestSteps,
+    currentTestName, setCurrentTestName,
+    currentTestId, setCurrentTestId,
+    isRunningTest, setIsRunningTest
   };
 
-  const recordTestPageProps: RecordTestPageProps = { // Define props for RecordTestPage
+  const recordTestPageProps: RecordTestPageProps = {
     isProxyEnabled,
   };
 
-
-  // Temporary: to access translations for setCurrentTestName effect
-  // This is a bit of a workaround because the t function from useLocalization changes with locale
-  // and we need the old locale's default string to compare.
   const translations = {
     it: { createTestPage: { testCanvas: { newTestNameDefault: "Nuovo Test"}}},
     en: { createTestPage: { testCanvas: { newTestNameDefault: "New Test"}}},
-  }
-
+  };
 
   const renderPage = () => {
+    if (isLoadingTests && currentPage === Page.DASHBOARD) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className={`text-lg ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>
+            {t('general.loading')}...
+          </div>
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case Page.DASHBOARD:
         return <DashboardPage 
@@ -143,10 +165,26 @@ const App: React.FC = () => {
     }
   };
 
+  // If auth is loading, show loading screen
+  if (authLoading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${theme === 'light' ? 'bg-gray-100' : 'bg-slate-900'}`}>
+        <div className={`text-lg ${theme === 'light' ? 'text-slate-600' : 'text-slate-300'}`}>
+          {t('general.loading')}...
+        </div>
+      </div>
+    );
+  }
+
+  // If user is not authenticated, show login page
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return (
     <div className={`flex h-screen ${theme === 'light' ? 'bg-gray-100' : 'bg-slate-900'}`}>
       <NavigationMenu currentPage={currentPage} setCurrentPage={setCurrentPage} />
-      <div className="flex-grow overflow-auto"> {/* Main content area */}
+      <div className="flex-grow overflow-auto">
         {renderPage()}
       </div>
     </div>
