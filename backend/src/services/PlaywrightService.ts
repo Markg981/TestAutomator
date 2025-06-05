@@ -1,199 +1,94 @@
-import { Browser, chromium, Page } from 'playwright';
+import { chromium, Page, Browser } from 'playwright';
+import path from 'path';
+import fs from 'fs';
 
-interface BrowserSession {
-  browser: Browser;
-  page: Page;
-  lastActivity: number;
-}
+export class PlaywrightService {
+  private browser: Browser | null = null;
 
-interface ElementInfo {
-  tag: string;
-  id?: string;
-  classes?: string[];
-  text?: string;
-  attributes: Record<string, string>;
-  xpath: string;
-  selector: string;
-  boundingBox?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-}
-
-class PlaywrightService {
-  private sessions: Map<string, BrowserSession> = new Map();
-  private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-
-  constructor() {
-    // Cleanup inactive sessions periodically
-    setInterval(() => this.cleanupInactiveSessions(), 5 * 60 * 1000);
-  }
-
-  private async cleanupInactiveSessions() {
-    const now = Date.now();
-    for (const [sessionId, session] of this.sessions.entries()) {
-      if (now - session.lastActivity > this.SESSION_TIMEOUT) {
-        await this.closeSession(sessionId);
-      }
+  private async getBrowser(): Promise<Browser> {
+    if (this.browser) {
+      console.log('[PlaywrightService] Closing existing browser instance before creating a new one...');
+      await this.browser.close();
+      this.browser = null;
     }
-  }
+    console.log('[PlaywrightService] Launching new browser instance');
 
-  async createSession(url: string): Promise<{ sessionId: string; screenshot: string; title: string }> {
-    const browser = await chromium.launch();
-    const page = await browser.newPage();
+    // Read SSL certificates
+    const certPath = path.join(__dirname, '../../../certificates/localhost.pem');
+    const keyPath = path.join(__dirname, '../../../certificates/localhost-key.pem');
     
-    try {
-      await page.goto(url, { waitUntil: 'networkidle' });
-      const screenshot = await page.screenshot({ fullPage: true });
-      const title = await page.title();
-      
-      const sessionId = Date.now().toString();
-      this.sessions.set(sessionId, {
-        browser,
-        page,
-        lastActivity: Date.now()
-      });
-
-      return {
-        sessionId,
-        screenshot: screenshot.toString('base64'),
-        title
-      };
-    } catch (error) {
-      await browser.close();
-      throw error;
-    }
-  }
-
-  async closeSession(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      await session.browser.close();
-      this.sessions.delete(sessionId);
-    }
-  }
-
-  async scanElements(sessionId: string): Promise<ElementInfo[]> {
-    const session = this.sessions.get(sessionId);
-    if (!session) throw new Error('Session not found');
-
-    session.lastActivity = Date.now();
-
-    return await session.page.evaluate(() => {
-      function getXPath(element: Element): string {
-        if (element.id) return `//*[@id="${element.id}"]`;
-        
-        const paths: string[] = [];
-        let current = element;
-        
-        while (current.parentNode instanceof Element) {
-          let index = 1;
-          let sibling = current.previousElementSibling;
-          while (sibling) {
-            if (sibling.nodeName === current.nodeName) index++;
-            sibling = sibling.previousElementSibling;
-          }
-          
-          const tagName = current.nodeName.toLowerCase();
-          paths.unshift(`${tagName}[${index}]`);
-          current = current.parentNode;
-        }
-        
-        return '/' + paths.join('/');
-      }
-
-      function getCssSelector(element: Element): string {
-        if (element.id) return `#${element.id}`;
-        
-        const paths: string[] = [];
-        let current = element;
-        
-        while (current.parentNode instanceof Element) {
-          let selector = current.tagName.toLowerCase();
-          
-          if (current.id) {
-            paths.unshift(`#${current.id}`);
-            break;
-          } else if (current.classList.length > 0) {
-            selector += `.${Array.from(current.classList).join('.')}`;
-          }
-          
-          paths.unshift(selector);
-          current = current.parentNode;
-        }
-        
-        return paths.join(' > ');
-      }
-
-      const elements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
-      return Array.from(elements).map(el => {
-        const rect = el.getBoundingClientRect();
-        const attributes: Record<string, string> = {};
-        Array.from(el.attributes).forEach(attr => {
-          attributes[attr.name] = attr.value;
-        });
-
-        return {
-          tag: el.tagName.toLowerCase(),
-          id: el.id || undefined,
-          classes: Array.from(el.classList),
-          text: el.textContent?.trim() || undefined,
-          attributes,
-          xpath: getXPath(el),
-          selector: getCssSelector(el),
-          boundingBox: {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height
-          }
-        };
-      });
+    this.browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--ignore-certificate-errors',
+        '--allow-insecure-localhost',
+        `--use-gl=swiftshader`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
     });
+    return this.browser;
   }
 
-  async getElementScreenshot(sessionId: string, selector: string): Promise<string> {
-    const session = this.sessions.get(sessionId);
-    if (!session) throw new Error('Session not found');
+  async createPage(): Promise<Page | null> {
+    try {
+      const browser = await this.getBrowser();
+      console.log('[PlaywrightService] Creating new browser context');
+      
+      const context = await browser.newContext({
+        ignoreHTTPSErrors: true,
+        bypassCSP: true,
+        viewport: { width: 1920, height: 1080 },
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        acceptDownloads: true,
+        javaScriptEnabled: true,
+        extraHTTPHeaders: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Connection': 'keep-alive'
+        }
+      });
 
-    session.lastActivity = Date.now();
+      // Enable request interception
+      await context.route('**/*', async (route) => {
+        const request = route.request();
+        try {
+          // Log the request for debugging
+          console.log(`[PlaywrightService] Intercepted request: ${request.url()}`);
+          await route.continue();
+        } catch (error) {
+          console.error(`[PlaywrightService] Error handling request: ${error}`);
+          await route.abort();
+        }
+      });
 
-    const element = await session.page.$(selector);
-    if (!element) throw new Error('Element not found');
+      console.log('[PlaywrightService] Creating new page');
+      const page = await context.newPage();
+      
+      // Add error handling for page errors
+      page.on('pageerror', error => {
+        console.error('[PlaywrightService] Page error:', error);
+      });
 
-    const screenshot = await element.screenshot();
-    return screenshot.toString('base64');
-  }
+      page.on('console', msg => {
+        console.log(`[Page Console] ${msg.type()}: ${msg.text()}`);
+      });
 
-  async executeAction(sessionId: string, action: string, selector?: string, value?: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    if (!session) throw new Error('Session not found');
-
-    session.lastActivity = Date.now();
-
-    switch (action) {
-      case 'click':
-        if (!selector) throw new Error('Selector required for click action');
-        await session.page.click(selector);
-        break;
-      case 'type':
-        if (!selector || !value) throw new Error('Selector and value required for type action');
-        await session.page.fill(selector, value);
-        break;
-      case 'select':
-        if (!selector || !value) throw new Error('Selector and value required for select action');
-        await session.page.selectOption(selector, value);
-        break;
-      case 'wait':
-        const timeout = value ? parseInt(value) : 1000;
-        await session.page.waitForTimeout(timeout);
-        break;
-      default:
-        throw new Error(`Unsupported action: ${action}`);
+      return page;
+    } catch (error) {
+      console.error('[PlaywrightService] Error creating page:', error);
+      return null;
     }
   }
-}
 
-export const playwrightService = new PlaywrightService(); 
+  async closeBrowser() {
+    if (this.browser) {
+      console.log('[PlaywrightService] closeBrowser called (may be redundant if getBrowser always makes new)');
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+} 
