@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import playwrightService from '../services/playwright';
+import { playwrightService } from '../services/playwright';
 
 const router = Router();
 
