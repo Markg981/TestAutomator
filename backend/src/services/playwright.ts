@@ -127,7 +127,7 @@ class PlaywrightService {
         return paths.join(' > ');
       }
 
-      const elements = document.querySelectorAll<HTMLElement>('button, a, input, select, textarea');
+      const elements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
       return Array.from(elements).map(el => {
         const rect = el.getBoundingClientRect();
         const attributes: Record<string, string> = {};
