@@ -6,6 +6,7 @@ const API_BASE_URL = 'https://localhost:3001/api';
 
 const getHeaders = () => {
   const token = authService.getToken();
+  console.log('[apiService] Token from authService.getToken():', token); // New debug line
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };

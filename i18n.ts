@@ -120,7 +120,8 @@ export const translations: Record<Locale, Translations> = {
         crossOriginDetectionFailedHelp: "Il rilevamento elementi su siti esterni è bloccato dalla sicurezza del browser (Same-Origin Policy). Usa gli strumenti per sviluppatori del browser ('Ispeziona Elemento') per trovare i selettori CSS e inseriscili manualmente, oppure usa la 'Pagina Test Interna' per il rilevamento automatico.",
         detectionFailedGeneralHelp: "Rilevamento fallito. L'iframe potrebbe non essere accessibile (es. per restrizioni del sito o policy cross-origin non aggirabili dal proxy). Prova con la 'Pagina di Test Interna' o verifica la console del browser per dettagli.",
         fileUrlLimitations: "URL `file:///` caricato. Rilevamento elementi e interazione saranno limitati dalla sicurezza del browser.",
-        externalPageNoProxyLimitations: "Pagina esterna caricata SENZA proxy. Rilevamento elementi e interazioni saranno limitati o bloccati dalla sicurezza del browser (Same-Origin Policy)."
+        externalPageNoProxyLimitations: "Pagina esterna caricata SENZA proxy. Rilevamento elementi e interazioni saranno limitati o bloccati dalla sicurezza del browser (Same-Origin Policy).",
+        detectionFailedSpecific: "Rilevamento elementi fallito. Dettagli: {{error}}"
       },
       testCanvas: {
         testNamePlaceholder: "Nome del Test",
@@ -252,7 +253,9 @@ export const translations: Record<Locale, Translations> = {
         errorNLPGenericWithMessage: "ERRORE NLP: {{message}}",
         logCleared: "Log pulito.",
         confirmDeleteTest: "Sei sicuro di voler eliminare questo test?",
-        waitingForPageLoadBeforeDetect: "AVVISO: La pagina è ancora in fase di caricamento. Il rilevamento elementi inizierà a breve."
+        waitingForPageLoadBeforeDetect: "AVVISO: La pagina è ancora in fase di caricamento. Il rilevamento elementi inizierà a breve.",
+        detectingElementsWithPlaywright: "Rilevamento elementi con Playwright per URL: {{url}}...",
+        errorDuringElementDetection: "ERRORE: Fallimento durante il rilevamento elementi da {{source}}. Causa: {{error}}"
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Vai a URL",
@@ -474,7 +477,8 @@ export const translations: Record<Locale, Translations> = {
         crossOriginDetectionFailedHelp: "Element detection on external sites is blocked by browser security (Same-Origin Policy). Use browser developer tools ('Inspect Element') to find CSS selectors and input them manually, or use the 'Internal Test Page' for automatic detection.",
         detectionFailedGeneralHelp: "Detection failed. The iframe might be inaccessible (e.g., due to site restrictions or cross-origin policies not bypassable by the proxy). Try the 'Internal Test Page' or check the browser console for details.",
         fileUrlLimitations: "File URL `file:///` loaded. Element detection and interaction will be limited by browser security.",
-        externalPageNoProxyLimitations: "External page loaded WITHOUT proxy. Element detection and interactions will be limited or blocked by browser security (Same-Origin Policy)."
+        externalPageNoProxyLimitations: "External page loaded WITHOUT proxy. Element detection and interactions will be limited or blocked by browser security (Same-Origin Policy).",
+        detectionFailedSpecific: "Element detection failed. Details: {{error}}"
       },
       testCanvas: {
         testNamePlaceholder: "Test Name",
@@ -606,7 +610,9 @@ export const translations: Record<Locale, Translations> = {
         errorNLPGenericWithMessage: "NLP ERROR: {{message}}",
         logCleared: "Log cleared.",
         confirmDeleteTest: "Are you sure you want to delete this test?",
-        waitingForPageLoadBeforeDetect: "WARNING: Page is still loading. Element detection will commence shortly."
+        waitingForPageLoadBeforeDetect: "WARNING: Page is still loading. Element detection will commence shortly.",
+        detectingElementsWithPlaywright: "Detecting elements with Playwright for URL: {{url}}...",
+        errorDuringElementDetection: "ERROR: Failed during element detection from {{source}}. Cause: {{error}}"
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Go to URL",

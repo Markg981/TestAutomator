@@ -64,15 +64,15 @@ export const authService = {
   },
 
   getToken(): string | null {
-    return localStorage.getItem('auth_token');
+    return localStorage.getItem('authToken');
   },
 
   setToken(token: string): void {
-    localStorage.setItem('auth_token', token);
+    localStorage.setItem('authToken', token);
   },
 
   removeToken(): void {
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem('authToken');
   },
 
   isAuthenticated(): boolean {

@@ -50,7 +50,7 @@ cert.setIssuer(attrs);
 // Set extensions
 cert.setExtensions([{
     name: 'basicConstraints',
-    cA: true
+    cA: false
 }, {
     name: 'keyUsage',
     keyCertSign: true,

@@ -148,9 +148,11 @@ interface ElementsPanelProps {
   isPagePreviewVisible: boolean;
   onDragStartElement: (event: DragEvent<HTMLElement>, elementId: string) => void;
   elementDetectionError: string | null;
+  onElementMouseEnter: (selector: string) => void;
+  onElementMouseLeave: () => void;
 }
 const ElementsPanel = React.memo<ElementsPanelProps>(({
-  isDetectingElements, detectedElements, isPagePreviewVisible, onDragStartElement, elementDetectionError
+  isDetectingElements, detectedElements, isPagePreviewVisible, onDragStartElement, elementDetectionError, onElementMouseEnter, onElementMouseLeave
 }) => {
   const { theme } = useTheme();
   const { t } = useLocalization();
@@ -177,6 +179,8 @@ const ElementsPanel = React.memo<ElementsPanelProps>(({
           key={el.id}
           draggable
           onDragStart={(e) => onDragStartElement(e, el.id)}
+          onMouseEnter={() => onElementMouseEnter(el.selector)} // New handler
+          onMouseLeave={onElementMouseLeave} // New handler
           className={`p-2.5 rounded shadow cursor-grab transition-colors text-sm
                       ${theme === 'light'
                         ? 'bg-white hover:bg-slate-50 border border-slate-200'
@@ -622,6 +626,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [isGeneratingNLPSteps, setIsGeneratingNLPSteps] = useState<boolean>(false);
   const [isInternalTestPageLoaded, setIsInternalTestPageLoaded] = useState<boolean>(false);
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
+  const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -1236,6 +1241,49 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     setExecutionLog([t('createTestPage.logs.logCleared')]);
   }, [setExecutionLog, t]);
 
+  const HIGHLIGHT_STYLE_ID = 'gstd-element-highlighter-style';
+  let lastHighlightedElement: HTMLElement | null = null;
+  let originalOutline: string | null = null;
+
+  const applyHighlight = (selector: string) => {
+    if (!(iframeSrc && iframeSrc.startsWith('data:'))) return; // Only for internal test page
+
+    const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+    if (!iframe?.contentDocument) return;
+
+    removeHighlight(); // Clear previous highlight
+
+    try {
+      const element = iframe.contentDocument.querySelector(selector) as HTMLElement | null;
+      if (element) {
+        lastHighlightedElement = element;
+        originalOutline = element.style.outline;
+        element.style.outline = '2px solid red'; // Example highlight style
+        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      }
+    } catch (e) {
+      console.warn(`Error trying to highlight element with selector: ${selector}`, e);
+    }
+  };
+
+  const removeHighlight = () => {
+    if (lastHighlightedElement && originalOutline !== null) {
+      lastHighlightedElement.style.outline = originalOutline;
+    }
+    lastHighlightedElement = null;
+    originalOutline = null;
+  };
+
+  const handleElementMouseEnter = (selector: string) => {
+    setHighlightedElementSelector(selector); // Optional: if you need to track state for other reasons
+    applyHighlight(selector);
+  };
+
+  const handleElementMouseLeave = () => {
+    setHighlightedElementSelector(null); // Optional
+    removeHighlight();
+  };
+
   useEffect(() => {
     const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframeElement) {
@@ -1330,7 +1378,15 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
             />
           </div>
         </div>
-        <ElementsPanel isDetectingElements={isDetectingElements} detectedElements={detectedElements} isPagePreviewVisible={isPagePreviewVisible} onDragStartElement={onDragStartElement} elementDetectionError={elementDetectionError} />
+        <ElementsPanel 
+          isDetectingElements={isDetectingElements} 
+          detectedElements={detectedElements} 
+          isPagePreviewVisible={isPagePreviewVisible} 
+          onDragStartElement={onDragStartElement} 
+          onElementMouseEnter={handleElementMouseEnter}
+          onElementMouseLeave={handleElementMouseLeave}
+          elementDetectionError={elementDetectionError} 
+        />
       </main>
       <Modal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} title={t('createTestPage.saveModal.title')}
         footer={
