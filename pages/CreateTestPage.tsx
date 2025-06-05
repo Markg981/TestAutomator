@@ -668,9 +668,13 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         setIframeSrc(srcToLoad);
         setIsPagePreviewVisible(true);
         setDetectedElements([]);
-        // Imposta come pagina interna se è GSTD per forzare l'uso dell'iframe
-        if (trimmedUrl.includes('/gstd/gstd-report')) {
-          setIsInternalTestPageLoaded(true);
+            // Ensure isInternalTestPageLoaded is false for external URLs
+            if (srcToLoad.startsWith('data:')) {
+                // This case is mostly handled by handleLoadInternalTestPage,
+                // but good to be explicit if a data URL were loaded here.
+                setIsInternalTestPageLoaded(true);
+            } else {
+                setIsInternalTestPageLoaded(false);
         }
         if (!currentTestId) { 
             setTestSteps([]);
@@ -738,8 +742,8 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
     try {
       // Per le pagine interne, manteniamo la logica esistente
-      if (isInternalTestPageLoaded) {
-        // Mantieni la logica esistente per le pagine interne
+      if (iframeSrc && iframeSrc.startsWith('data:')) {
+        // Mantieni la logica esistente per le pagine interne (data: URLs)
         setTimeout(() => {
           const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
           console.log("[DEBUG] [DetectElements Timeout] iframe element:", iframe);
@@ -834,7 +838,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
           }
         }, 500);
       } else {
-        // For external pages, use the new Playwright backend service
+        // For external pages or non-data URLs, use the new Playwright backend service
         log('createTestPage.logs.detectingElementsWithPlaywright', { url }, 'info');
         console.log(`[DEBUG] Detecting elements for external URL: ${url} using Playwright backend service.`);
         const backendElements = await apiService.detectElementsByPlaywright(url); // ElementInfo[]
