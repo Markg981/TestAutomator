@@ -25,7 +25,11 @@ const iframeHighlightingScript = `
 
         if (data && data.type === 'HIGHLIGHT_ELEMENT' && data.selector) {
             if (lastHighlightedElement) {
-                try { lastHighlightedElement.style.outline = originalOutline; } catch(e) { console.warn('Error removing previous highlight:', e); }
+                try {
+                    lastHighlightedElement.style.outline = originalOutline;
+                } catch(e) {
+                    console.warn('Highlighter: Error removing previous outline - ', e);
+                }
             }
 
             try {
@@ -34,14 +38,14 @@ const iframeHighlightingScript = `
                     lastHighlightedElement = elementToHighlight;
                     originalOutline = elementToHighlight.style.outline || '';
                     elementToHighlight.style.outline = '2px solid red';
-                    // Consider if scrollIntoView is needed here too
                     // elementToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
                 } else {
+                    console.warn('Highlighter: Element not found for selector:', data.selector);
                     lastHighlightedElement = null;
                     originalOutline = '';
                 }
             } catch(e) {
-                console.warn('Error applying highlight:', e);
+                console.error('Highlighter: Error querying or applying highlight for selector "' + data.selector + '" - ', e);
                 lastHighlightedElement = null;
                 originalOutline = '';
             }
@@ -50,7 +54,7 @@ const iframeHighlightingScript = `
                 try {
                     lastHighlightedElement.style.outline = originalOutline;
                 } catch(e) {
-                    console.warn('Error removing highlight:', e);
+                    console.warn('Highlighter: Error removing outline - ', e);
                 } finally {
                     lastHighlightedElement = null;
                     originalOutline = '';
@@ -1340,8 +1344,10 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const applyHighlight = (selector: string) => {
     const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframe && iframe.contentWindow) {
-      // No longer call removeHighlight() from here, let the iframe manage its state.
       iframe.contentWindow.postMessage({ type: 'HIGHLIGHT_ELEMENT', selector: selector }, '*');
+    } else {
+      console.warn('[DEBUG] applyHighlight: Iframe or contentWindow not available.');
+      // log('createTestPage.logs.highlightErrorNoContentWindow', { action: 'applyHighlight' }, 'warning');
     }
   };
 
@@ -1349,6 +1355,9 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'REMOVE_HIGHLIGHT' }, '*');
+    } else {
+      console.warn('[DEBUG] removeHighlight: Iframe or contentWindow not available.');
+      // log('createTestPage.logs.highlightErrorNoContentWindow', { action: 'removeHighlight' }, 'warning');
     }
   };
 
