@@ -15,6 +15,52 @@ const getElementDefinition = (elementId: string, elements: DetectedElement[]): D
   return elements.find(e => e.id === elementId);
 };
 
+const iframeHighlightingScript = `
+(function() {
+    let lastHighlightedElement = null;
+    let originalOutline = '';
+
+    window.addEventListener('message', function(event) {
+        const data = event.data;
+
+        if (data && data.type === 'HIGHLIGHT_ELEMENT' && data.selector) {
+            if (lastHighlightedElement) {
+                try { lastHighlightedElement.style.outline = originalOutline; } catch(e) { console.warn('Error removing previous highlight:', e); }
+            }
+
+            try {
+                const elementToHighlight = document.querySelector(data.selector);
+                if (elementToHighlight) {
+                    lastHighlightedElement = elementToHighlight;
+                    originalOutline = elementToHighlight.style.outline || '';
+                    elementToHighlight.style.outline = '2px solid red';
+                    // Consider if scrollIntoView is needed here too
+                    // elementToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                } else {
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            } catch(e) {
+                console.warn('Error applying highlight:', e);
+                lastHighlightedElement = null;
+                originalOutline = '';
+            }
+        } else if (data && data.type === 'REMOVE_HIGHLIGHT') {
+            if (lastHighlightedElement) {
+                try {
+                    lastHighlightedElement.style.outline = originalOutline;
+                } catch(e) {
+                    console.warn('Error removing highlight:', e);
+                } finally {
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            }
+        }
+    });
+})();
+`;
+
 // --- Sub-Components ---
 interface HeaderProps {
   url: string;
@@ -406,25 +452,16 @@ const WebPreviewPanel = React.memo<WebPreviewPanelProps>(({
       </div>
 
       {isPagePreviewVisible && iframeSrc ? (
-        isInternalTestPage || actualLoadedUrl.includes('/gstd/gstd-report') ? (
-          <iframe
-            id={IFRAME_PREVIEW_ID}
-            key={iframeSrc}
-            src={iframeSrc}
-            title={t('createTestPage.webPreviewPanel.title')}
-            className="w-full h-4/5 border-0 flex-grow"
-            sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
-          />
-        ) : (
-          <img
-            src={iframeSrc}
-            alt="Page preview"
-            className="w-full h-4/5 object-contain flex-grow"
-          />
-        )
+        <iframe
+          id={IFRAME_PREVIEW_ID}
+          key={iframeSrc} // Keep using iframeSrc as key to force re-render on src change
+          src={iframeSrc}
+          title={t('createTestPage.webPreviewPanel.title')}
+          className="w-full h-4/5 border-0 flex-grow" // Or existing className for iframe
+          sandbox="allow-scripts allow-forms allow-popups allow-same-origin" // Keep existing sandbox policy
+        />
       ) : (
-        <div className={`w-full h-4/5 flex-grow flex items-center justify-center p-4
-                       ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
+        <div className={`w-full h-4/5 flex-grow flex items-center justify-center p-4 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
           {isPagePreviewVisible ? t('createTestPage.webPreviewPanel.loadingPreview') : t('createTestPage.webPreviewPanel.loadPagePrompt')}
         </div>
       )}
@@ -601,6 +638,40 @@ export const INTERNAL_TEST_PAGE_HTML = `
             el.classList.toggle('hidden-element');
             document.getElementById('outputArea').textContent = 'Elemento nascosto ora ' + (isHidden ? 'VISIBILE' : 'NASCOSTO');
         });
+
+        let lastHighlightedElement = null;
+        let originalOutline = ''; // Initialize as empty string or null
+
+        window.addEventListener('message', function(event) {
+            // Optional: Check event.origin for security if needed in other contexts
+            // if (event.origin !== 'expected_parent_origin') return;
+
+            const data = event.data;
+
+            if (data && data.type === 'HIGHLIGHT_ELEMENT' && data.selector) {
+                // Clear previous highlight
+                if (lastHighlightedElement) {
+                    lastHighlightedElement.style.outline = originalOutline;
+                }
+
+                const elementToHighlight = document.querySelector(data.selector);
+                if (elementToHighlight) {
+                    lastHighlightedElement = elementToHighlight;
+                    originalOutline = elementToHighlight.style.outline || ''; // Store current outline
+                    elementToHighlight.style.outline = '2px solid red';
+                    // elementToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                } else {
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            } else if (data && data.type === 'REMOVE_HIGHLIGHT') {
+                if (lastHighlightedElement) {
+                    lastHighlightedElement.style.outline = originalOutline;
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            }
+        });
     </script>
 </body>
 </html>`;
@@ -720,6 +791,29 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length)) 
         : iframeSrc;
       log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
+    }
+
+    // Inject highlighting script for external pages
+    if (iframeSrc && !iframeSrc.startsWith('data:')) {
+      const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+      if (iframe) {
+          try {
+              const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+              if (iframeDoc) {
+                  const scriptElement = iframeDoc.createElement('script');
+                  scriptElement.textContent = iframeHighlightingScript;
+                  iframeDoc.body.appendChild(scriptElement);
+                  log('createTestPage.logs.attemptedScriptInjection', { result: 'Success' });
+                  console.log('[DEBUG] Injected highlighting script into external page iframe.');
+              } else {
+                  log('createTestPage.logs.attemptedScriptInjection', { result: 'Failed: No iframe document' }, 'warning');
+                  console.warn('[DEBUG] Failed to inject highlighting script: iframe document not accessible.');
+              }
+          } catch (error) {
+              log('createTestPage.logs.attemptedScriptInjection', { result: `Failed: ${String(error)}` }, 'error');
+              console.error('[DEBUG] Error injecting highlighting script into external page iframe:', error);
+          }
+      }
     }
   }, [iframeSrc, isInternalTestPageLoaded, log, setIsLoadingPage, isProxyEnabled]);
 
@@ -1242,36 +1336,20 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [setExecutionLog, t]);
 
   const HIGHLIGHT_STYLE_ID = 'gstd-element-highlighter-style';
-  let lastHighlightedElement: HTMLElement | null = null;
-  let originalOutline: string | null = null;
 
   const applyHighlight = (selector: string) => {
-    if (!(iframeSrc && iframeSrc.startsWith('data:'))) return; // Only for internal test page
-
     const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-    if (!iframe?.contentDocument) return;
-
-    removeHighlight(); // Clear previous highlight
-
-    try {
-      const element = iframe.contentDocument.querySelector(selector) as HTMLElement | null;
-      if (element) {
-        lastHighlightedElement = element;
-        originalOutline = element.style.outline;
-        element.style.outline = '2px solid red'; // Example highlight style
-        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-      }
-    } catch (e) {
-      console.warn(`Error trying to highlight element with selector: ${selector}`, e);
+    if (iframe && iframe.contentWindow) {
+      // No longer call removeHighlight() from here, let the iframe manage its state.
+      iframe.contentWindow.postMessage({ type: 'HIGHLIGHT_ELEMENT', selector: selector }, '*');
     }
   };
 
   const removeHighlight = () => {
-    if (lastHighlightedElement && originalOutline !== null) {
-      lastHighlightedElement.style.outline = originalOutline;
+    const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'REMOVE_HIGHLIGHT' }, '*');
     }
-    lastHighlightedElement = null;
-    originalOutline = null;
   };
 
   const handleElementMouseEnter = (selector: string) => {
