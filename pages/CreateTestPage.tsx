@@ -22,7 +22,6 @@ interface HeaderProps {
   isLoadingPage: boolean;
   isRunningTest: boolean;
   handleLoadUrl: () => void;
-  handleLoadInternalTestPage: () => void; 
   isPagePreviewVisible: boolean;
   isDetectingElements: boolean;
   handleDetectElements: () => void;
@@ -34,7 +33,7 @@ interface HeaderProps {
 }
 
 const Header = React.memo<HeaderProps>(({
-  url, setUrl, isLoadingPage, isRunningTest, handleLoadUrl, handleLoadInternalTestPage,
+  url, setUrl, isLoadingPage, isRunningTest, handleLoadUrl,
   isPagePreviewVisible, isDetectingElements, handleDetectElements,
   testStepsCount, handleRunTest, onSaveTest, currentTestId, onShowLoadModal
 }) => {
@@ -56,11 +55,6 @@ const Header = React.memo<HeaderProps>(({
               className={`px-4 py-2 rounded disabled:opacity-50 transition-colors
                           ${theme === 'light' ? 'bg-sky-500 hover:bg-sky-600 text-white' : 'bg-sky-600 hover:bg-sky-500 text-white'}`}>
         {isLoadingPage ? t('general.loading') : t('createTestPage.header.loadPageButton')}
-      </button>
-      <button onClick={handleLoadInternalTestPage} disabled={isLoadingPage || isRunningTest}
-              className={`px-4 py-2 rounded disabled:opacity-50 transition-colors text-sm
-                          ${theme === 'light' ? 'bg-lime-500 hover:bg-lime-600 text-white' : 'bg-lime-600 hover:bg-lime-500 text-white'}`}>
-        {t('createTestPage.header.loadInternalTestPageButton')}
       </button>
       <button 
         onClick={handleDetectElements} 
@@ -371,24 +365,24 @@ interface WebPreviewPanelProps {
   isPagePreviewVisible: boolean;
   executionLog: string[];
   isRunningTest: boolean;
-  isInternalTestPage: boolean;
   isProxyEnabled: boolean;
   onClearLog: () => void;
 }
 
 const WebPreviewPanel = React.memo<WebPreviewPanelProps>(({ 
-  iframeSrc, actualLoadedUrl, isPagePreviewVisible, executionLog, isRunningTest, isInternalTestPage, isProxyEnabled, onClearLog 
+  iframeSrc, actualLoadedUrl, isPagePreviewVisible, executionLog, isRunningTest, isProxyEnabled, onClearLog
 }) => {
   const { theme } = useTheme();
   const { t } = useLocalization();
 
-  const displayUrl = isInternalTestPage ? t('general.internalTestPageName') : (actualLoadedUrl || t('general.none'));
+  const displayUrl = actualLoadedUrl || t('general.none');
   
   let pageTypeQualifier = '';
-  if (isInternalTestPage) {
-    pageTypeQualifier = t('createTestPage.webPreviewPanel.internalPageQualifier');
-  } else if (iframeSrc) {
+  if (iframeSrc) {
     if (iframeSrc.startsWith('data:')) {
+      // This case should ideally not happen now that internal page is gone.
+      // Consider if this 'screenshotQualifier' is still relevant or if data: URLs are only for screenshots.
+      // For now, keep it, but it might need further review based on how screenshots are handled.
       pageTypeQualifier = t('createTestPage.webPreviewPanel.screenshotQualifier');
     } else if (iframeSrc.startsWith('file')) {
       pageTypeQualifier = t('createTestPage.webPreviewPanel.externalPageWarningShort');
@@ -406,7 +400,7 @@ const WebPreviewPanel = React.memo<WebPreviewPanelProps>(({
       </div>
 
       {isPagePreviewVisible && iframeSrc ? (
-        isInternalTestPage || actualLoadedUrl.includes('/gstd/gstd-report') ? (
+        actualLoadedUrl.includes('/gstd/gstd-report') ? ( // Assuming /gstd/gstd-report is a valid case that should still render an iframe
           <iframe
             id={IFRAME_PREVIEW_ID}
             key={iframeSrc}
@@ -544,67 +538,6 @@ export const getElementUserFriendlyName = (element: HTMLElement, tagName: string
   return tagName;
 };
 
-export const INTERNAL_TEST_PAGE_HTML = `
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <title>Pagina di Test Interna</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background-color: #f4f7f9; color: #333; margin:0;}
-        .container { background-color: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px; margin: 20px auto; }
-        h1 { color: #2c3e50; margin-top: 0; }
-        p { line-height: 1.6; }
-        label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
-        input[type="text"], input[type="password"], button {
-            padding: 10px 12px; margin: 5px 0 15px 0; border-radius: 5px; border: 1px solid #ddd;
-            box-sizing: border-box; width: 100%; font-size: 1rem;
-        }
-        input[type="text"]:focus, input[type="password"]:focus { border-color: #007bff; box-shadow: 0 0 0 2px rgba(0,123,255,.25); outline: none;}
-        button { cursor: pointer; background-color: #007bff; color: white; font-weight: 500; transition: background-color 0.2s ease; border: none; }
-        button:hover { background-color: #0056b3; }
-        button.secondary { background-color: #6c757d; }
-        button.secondary:hover { background-color: #545b62; }
-        .output { margin-top: 15px; padding: 12px; border: 1px dashed #ccc; min-height: 30px; background-color: #eef2f5; border-radius: 5px; font-family: monospace; white-space: pre-wrap;}
-        .hidden-element { display: none; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1 id="mainHeading">Pagina di Test Interna</h1>
-        <p id="descriptionParagraph">Questa pagina è caricata dall'applicazione per testare le funzionalità in un ambiente same-origin.</p>
-        <div>
-            <label for="textInput">Input Testo:</label>
-            <input type="text" id="textInput" name="test_input" placeholder="Scrivi qualcosa qui...">
-        </div>
-        <div>
-            <label for="passwordInput">Input Password:</label>
-            <input type="password" id="passwordInput" name="test_password" data-testid="password-field">
-        </div>
-        <button id="clickButton">Clicca per Messaggio</button>
-        <button id="verifyButton" class="secondary" data-testid="verify-btn">Verifica Testo Output</button>
-        <button id="toggleVisibilityButton" class="secondary">Mostra/Nascondi Elemento</button>
-        <div id="outputArea" class="output">Contenuto Iniziale Output</div>
-        <div id="hiddenElement" class="hidden-element">Elemento Nascosto Visibile!</div>
-    </div>
-    <script>
-        document.getElementById('clickButton').addEventListener('click', () => {
-            const inputText = document.getElementById('textInput').value;
-            document.getElementById('outputArea').textContent = 'Bottone "Clicca per Messaggio" cliccato! Testo input: ' + (inputText || '(vuoto)');
-        });
-        document.getElementById('verifyButton').addEventListener('click', () => {
-            document.getElementById('outputArea').textContent = 'Contenuto Output per Verifica Testo';
-        });
-        document.getElementById('toggleVisibilityButton').addEventListener('click', () => {
-            const el = document.getElementById('hiddenElement');
-            const isHidden = el.classList.contains('hidden-element');
-            el.classList.toggle('hidden-element');
-            document.getElementById('outputArea').textContent = 'Elemento nascosto ora ' + (isHidden ? 'VISIBILE' : 'NASCOSTO');
-        });
-    </script>
-</body>
-</html>`;
-
 const PROXY_PREFIX = '/__app_proxy__/';
 
 export const CreateTestPage: React.FC<CreateTestPageProps> = ({
@@ -624,7 +557,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [dropTargetInfo, setDropTargetInfo] = useState<{ stepId: string; type: 'element' | 'reorder' } | null>(null);
   const [naturalLanguageInput, setNaturalLanguageInput] = useState<string>('');
   const [isGeneratingNLPSteps, setIsGeneratingNLPSteps] = useState<boolean>(false);
-  const [isInternalTestPageLoaded, setIsInternalTestPageLoaded] = useState<boolean>(false);
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
 
@@ -648,7 +580,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     }
     setIsLoadingPage(true);
     setIsPagePreviewVisible(false); 
-    setIsInternalTestPageLoaded(false);
     setElementDetectionError(null);
     log('createTestPage.logs.loadingUrl', { url: trimmedUrl });
 
@@ -673,59 +604,28 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         setIframeSrc(srcToLoad);
         setIsPagePreviewVisible(true);
         setDetectedElements([]);
-            // Ensure isInternalTestPageLoaded is false for external URLs
-            if (srcToLoad.startsWith('data:')) {
-                // This case is mostly handled by handleLoadInternalTestPage,
-                // but good to be explicit if a data URL were loaded here.
-                setIsInternalTestPageLoaded(true);
-            } else {
-                setIsInternalTestPageLoaded(false);
-        }
         if (!currentTestId) { 
             setTestSteps([]);
             setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
         }
     }, 100); 
 
-  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, setIsInternalTestPageLoaded]);
-
-  const handleLoadInternalTestPage = useCallback(() => {
-    setIsLoadingPage(true);
-    setIsPagePreviewVisible(false);
-    setElementDetectionError(null);
-    log('createTestPage.logs.loadingInternalTestPage');
-    console.log("[DEBUG] handleLoadInternalTestPage called");
-
-    const internalPageDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-    
-    setTimeout(() => {
-        console.log("[DEBUG] Setting iframeSrc for internal page and updating states.");
-        setUrl("internal://test-page"); 
-        setIframeSrc(internalPageDataUrl);
-        setIsPagePreviewVisible(true);
-        setIsInternalTestPageLoaded(true);
-        log('createTestPage.logs.internalTestPageLoaded');
-        setDetectedElements([]);
-    }, 100);
-  }, [setUrl, setIframeSrc, setIsLoadingPage, setIsPagePreviewVisible, log, setDetectedElements, setElementDetectionError]);
+  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError]);
 
   const handleIframeLoadOrError = useCallback(() => {
     setIsLoadingPage(false);
-    console.log(`[DEBUG] iframe load/error event. isLoadingPage set to false. iframeSrc: ${iframeSrc}, isInternalTestPageLoaded: ${isInternalTestPageLoaded}`);
-    if (isInternalTestPageLoaded && iframeSrc?.startsWith('data:')) {
-      console.log("[DEBUG] Internal test page successfully loaded (iframe onload).");
-      log('createTestPage.logs.internalTestPageLoaded'); // Log success again here for clarity
-    } else if (iframeSrc && !isInternalTestPageLoaded && !iframeSrc.startsWith('data:')) {
+    console.log(`[DEBUG] iframe load/error event. isLoadingPage set to false. iframeSrc: ${iframeSrc}`);
+    if (iframeSrc && !iframeSrc.startsWith('data:')) { // Simplified condition
       const displayedUrl = (iframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled) 
         ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length)) 
         : iframeSrc;
       log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
     }
-  }, [iframeSrc, isInternalTestPageLoaded, log, setIsLoadingPage, isProxyEnabled]);
+  }, [iframeSrc, log, setIsLoadingPage, isProxyEnabled]);
 
 
   const handleDetectElements = useCallback(async () => {
-    console.log(`[DEBUG] handleDetectElements called. isInternalTestPageLoaded: ${isInternalTestPageLoaded}, isPagePreviewVisible: ${isPagePreviewVisible}, iframeSrc: ${iframeSrc}, isLoadingPage: ${isLoadingPage}`);
+    console.log(`[DEBUG] handleDetectElements called. isPagePreviewVisible: ${isPagePreviewVisible}, iframeSrc: ${iframeSrc}, isLoadingPage: ${isLoadingPage}`);
     
     if (isLoadingPage) {
       log('createTestPage.logs.waitingForPageLoadBeforeDetect', undefined, 'warning');
@@ -733,58 +633,49 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       return;
     }
     if (!isPagePreviewVisible || !iframeSrc) {
-      const messageKey = isInternalTestPageLoaded ? 'createTestPage.alerts.internalPageNotReadyForDetect' : 'createTestPage.alerts.loadPageFirstForDetect';
+      // const messageKey = isInternalTestPageLoaded ? 'createTestPage.alerts.internalPageNotReadyForDetect' : 'createTestPage.alerts.loadPageFirstForDetect';
+      // For simplicity, using a generic message, or decide if a more specific one is needed if iframeSrc is a data URL (screenshot)
+      const messageKey = 'createTestPage.alerts.loadPageFirstForDetect';
       alert(t(messageKey));
       log(messageKey, undefined, 'warning');
       return;
     }
     
     setIsDetectingElements(true);
-    const sourceName = isInternalTestPageLoaded ? t('general.internalTestPageName') : iframeSrc;
+    const sourceName = iframeSrc; // Simplified source name
     log('createTestPage.logs.detectingElementsFrom', { source: sourceName });
     console.log(`[DEBUG] Starting element detection from: ${sourceName}`);
     setDetectedElements([]);
 
     try {
-      // Per le pagine interne, manteniamo la logica esistente
       if (iframeSrc && iframeSrc.startsWith('data:')) {
-        // Mantieni la logica esistente per le pagine interne (data: URLs)
+        // This path is now primarily for screenshots or other non-interactive data URLs.
+        // Element detection on these might be limited or not intended.
+        // For now, keeping the existing logic but noting it might need review.
         setTimeout(() => {
           const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-          console.log("[DEBUG] [DetectElements Timeout] iframe element:", iframe);
+          console.log("[DEBUG] [DetectElements Timeout] iframe element (data URL):", iframe);
           if (!iframe) {
             log('createTestPage.logs.errorIframeNotFound', undefined, 'error');
-            console.error("[DEBUG] [DetectElements Timeout] Iframe not found.");
+            console.error("[DEBUG] [DetectElements Timeout] Iframe not found (data URL).");
             setIsDetectingElements(false);
             return;
           }
 
           try {
             const iframeDocument = iframe.contentDocument || iframe.contentWindow?.document;
-            console.log("[DEBUG] [DetectElements Timeout] iframeDocument:", iframeDocument);
-            if (isInternalTestPageLoaded) {
-                console.log("[DEBUG] [DetectElements Timeout] Attempting detection on INTERNAL TEST PAGE.");
-                if (iframeDocument && iframeDocument.body) {
-                    console.log("[DEBUG] [DetectElements Timeout] Internal page body outerHTML (first 200 chars):", iframeDocument.body.outerHTML.substring(0, 200));
-                    console.log("[DEBUG] [DetectElements Timeout] Internal page readyState:", iframeDocument.readyState);
-                } else if (iframeDocument) {
-                     console.warn("[DEBUG] [DetectElements Timeout] Internal page iframeDocument exists, but body is null/undefined.");
-                }
-            }
+            console.log("[DEBUG] [DetectElements Timeout] iframeDocument (data URL):", iframeDocument);
 
             if (!iframeDocument) {
               log('createTestPage.logs.errorAccessingIframeDom', { source: sourceName }, 'error');
-              console.error(`[DEBUG] [DetectElements Timeout] Cannot access iframe DOM from: ${sourceName}`);
+              console.error(`[DEBUG] [DetectElements Timeout] Cannot access iframe DOM from (data URL): ${sourceName}`);
               setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
               setIsDetectingElements(false);
               return;
             }
             log('createTestPage.logs.iframeAccessSuccessScanning', { source: sourceName });
             const foundHtmlElements = iframeDocument.querySelectorAll('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
-            console.log("[DEBUG] [DetectElements Timeout] foundHtmlElements length:", foundHtmlElements.length);
-            if (isInternalTestPageLoaded && foundHtmlElements.length === 0 && iframeDocument.body) {
-                console.warn("[DEBUG] [DetectElements Timeout] Query selector found 0 elements on internal page, but body content exists. Check selector string and page content.");
-            }
+            console.log("[DEBUG] [DetectElements Timeout] foundHtmlElements length (data URL):", foundHtmlElements.length);
             
             const newDetectedElements: DetectedElement[] = [];
             const tempSelectors = new Set<string>();
@@ -825,28 +716,27 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
             if (newDetectedElements.length > 0) {
               setDetectedElements(newDetectedElements);
-              const sourceDetails = isInternalTestPageLoaded ? t('general.internalTestPageName') : sourceName;
-              log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails });
-              console.log(`[DEBUG] [DetectElements Timeout] Detected ${newDetectedElements.length} elements.`);
+              log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
+              console.log(`[DEBUG] [DetectElements Timeout] Detected ${newDetectedElements.length} elements (data URL).`);
             } else {
               log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-              console.warn(`[DEBUG] [DetectElements Timeout] No interactive elements found for ${sourceName}.`);
+              console.warn(`[DEBUG] [DetectElements Timeout] No interactive elements found for (data URL) ${sourceName}.`);
             }
           } catch (error) {
-            console.error("[DEBUG] [DetectElements Timeout] Error during iframe DOM access or element processing:", error);
+            console.error("[DEBUG] [DetectElements Timeout] Error during iframe DOM access or element processing (data URL):", error);
             log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
             setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
             setDetectedElements([]);
           } finally {
             setIsDetectingElements(false);
-            console.log("[DEBUG] [DetectElements Timeout] Detection process finished.");
+            console.log("[DEBUG] [DetectElements Timeout] Detection process finished (data URL).");
           }
         }, 500);
       } else {
-        // For external pages or non-data URLs, use the new Playwright backend service
-        log('createTestPage.logs.detectingElementsWithPlaywright', { url }, 'info');
-        console.log(`[DEBUG] Detecting elements for external URL: ${url} using Playwright backend service.`);
-        const backendElements = await apiService.detectElementsByPlaywright(url); // ElementInfo[]
+        // For external pages or non-data URLs (e.g. http, file), use the Playwright backend service
+        log('createTestPage.logs.detectingElementsWithPlaywright', { url: iframeSrc || url }, 'info'); // Use iframeSrc if available, else fallback to url
+        console.log(`[DEBUG] Detecting elements for external URL: ${iframeSrc || url} using Playwright backend service.`);
+        const backendElements = await apiService.detectElementsByPlaywright(iframeSrc || url); // ElementInfo[]
 
         const newDetectedElements: DetectedElement[] = backendElements.map((el: any, index: number) => {
           // el is ElementInfo: { tag, id?, classes?, text?, attributes, xpath, selector, boundingBox? }
@@ -875,14 +765,14 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         setDetectedElements(newDetectedElements);
         if (newDetectedElements.length > 0) {
           log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
-          console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via Playwright backend API for ${url}.`);
+          console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via Playwright backend API for ${iframeSrc || url}.`);
         } else {
           log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-          console.warn(`[DEBUG] No interactive elements found via Playwright backend API for ${url}.`);
+          console.warn(`[DEBUG] No interactive elements found via Playwright backend API for ${iframeSrc || url}.`);
         }
       }
     } catch (error) {
-      console.error("[DEBUG] Error during element detection (either internal or Playwright backend):", error);
+      console.error("[DEBUG] Error during element detection (data URL or Playwright backend):", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       log('createTestPage.logs.errorDuringElementDetection', { source: sourceName, error: errorMessage }, 'error');
       setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedSpecific', { error: errorMessage }));
@@ -891,7 +781,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       setIsDetectingElements(false);
       console.log("[DEBUG] Element detection process finished.");
     }
-  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, isInternalTestPageLoaded, setElementDetectionError, isLoadingPage, url]);
+  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, setElementDetectionError, isLoadingPage, url]);
 
   const handleRunTest = useCallback(async () => {
     if (testSteps.length === 0) {
@@ -940,18 +830,33 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
                 newIframeSrc = targetUrlValue;
                 setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
             }
-            setIsInternalTestPageLoaded(false);
           } else if (targetUrlValue.startsWith('file:///')) {
             newIframeSrc = targetUrlValue;
-            setIsInternalTestPageLoaded(false);
             log('createTestPage.logs.navigatingToFileUrl', { url: targetUrlValue }, 'warning');
             setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
-          } else if (targetUrlValue === "internal://test-page") {
-            newIframeSrc = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-            setIsInternalTestPageLoaded(true);
-            setElementDetectionError(null);
+          } else { // Treat "internal://test-page" or any other non-http/file URL as a general URL to attempt loading
+            // If targetUrlValue was "internal://test-page", this will likely fail to load, which is acceptable now.
+            // Or, add specific error handling for "internal://test-page" if desired.
+            newIframeSrc = targetUrlValue;
+            // Consider logging a warning if it's "internal://test-page"
+            if (targetUrlValue === "internal://test-page") {
+                log('createTestPage.logs.errorInvalidNavigationUrl', { url: targetUrlValue }, 'warning'); // Log as warning
+                setElementDetectionError(t('createTestPage.alerts.internalPageRemoved')); // Specific error message
+            }
+            // For other invalid URLs, it might still be an error.
+            // The current structure will attempt to load it. If it fails, the iframe error handler might catch it.
+            // For now, let it proceed and rely on existing error handling for truly invalid URLs.
           }
-          else {
+
+          // Ensure critical errors still break the execution
+          if (targetUrlValue === "internal://test-page" && !newIframeSrc.startsWith('data:text/html')) { // Check if it's the removed internal page and not correctly handled
+             log('createTestPage.logs.errorInvalidNavigationUrl', { url: targetUrlValue }, 'error');
+             testHasFailed = true;
+             break; // from switch
+          }
+
+
+          if (!newIframeSrc) { // If newIframeSrc didn't get set (e.g. truly invalid format and not internal)
             log('createTestPage.logs.errorInvalidNavigationUrl', { url: targetUrlValue }, 'error');
             testHasFailed = true;
             break; // from switch
@@ -1042,7 +947,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     log("createTestPage.logs.testExecutionCompleted");
     setIsRunningTest(false);
     setCurrentExecutingStepId(null);
-  }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isInternalTestPageLoaded, setIsInternalTestPageLoaded, isProxyEnabled, setElementDetectionError]);
+  }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isProxyEnabled, setElementDetectionError]);
 
   const handleSaveTestLocal = useCallback(async () => {
     if (testSteps.length === 0) {
@@ -1096,22 +1001,29 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     setUrl(testToLoad.url || ''); 
     
     let srcToLoad: string | null = null;
-    if (testToLoad.url === "internal://test-page") {
-        srcToLoad = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-        setIsInternalTestPageLoaded(true);
-    } else if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
+    if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
         if (isProxyEnabled) {
             srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(testToLoad.url)}`;
         } else {
             srcToLoad = testToLoad.url;
             setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
         }
-        setIsInternalTestPageLoaded(false);
-    } else if (testToLoad.url) { 
-        srcToLoad = testToLoad.url; // e.g. file:///
-        setIsInternalTestPageLoaded(false);
+    } else if (testToLoad.url && testToLoad.url.startsWith('file:///')) {
+        srcToLoad = testToLoad.url;
         setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
+    } else if (testToLoad.url === "internal://test-page") {
+        // Handle loading of a legacy "internal://test-page" URL
+        log('createTestPage.logs.legacyInternalTestPageLoadAttempt', { name: testToLoad.name }, 'warning');
+        alert(t('createTestPage.alerts.internalPageRemovedLoad', { testName: testToLoad.name }));
+        // Optionally, clear the URL or set to a default, or allow user to update
+        setUrl(''); // Clear the URL as it's no longer valid
+        srcToLoad = null; // Do not attempt to load it
+        setElementDetectionError(t('createTestPage.alerts.internalPageRemoved'));
+    } else if (testToLoad.url) { // Other non-empty URLs
+        srcToLoad = testToLoad.url;
+         log('createTestPage.logs.unknownUrlTypeLoad', { url: testToLoad.url }, 'warning');
     }
+
 
     setIframeSrc(srcToLoad);
     setIsPagePreviewVisible(!!srcToLoad);
@@ -1123,15 +1035,13 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     
     let logKey = 'createTestPage.logs.testLoadedNoUrl';
     let params: Record<string,string|number|undefined> = { name: testToLoad.name };
-    if (testToLoad.url === "internal://test-page") {
-        logKey = 'createTestPage.logs.testLoadedInternal';
-    } else if (testToLoad.url) {
+    if (testToLoad.url && testToLoad.url !== "internal://test-page") { // Ensure it's not the removed internal page for this log
         logKey = 'createTestPage.logs.testLoadedWithUrl'; 
         params.url = testToLoad.url;
     }
     log(logKey, params);
     setShowLoadModal(false);
-  }, [setUrl, setIframeSrc, setIsPagePreviewVisible, setTestSteps, setCurrentTestName, setCurrentTestId, setDetectedElements, log, setIsInternalTestPageLoaded, setElementDetectionError, t, isProxyEnabled]);
+  }, [setUrl, setIframeSrc, setIsPagePreviewVisible, setTestSteps, setCurrentTestName, setCurrentTestId, setDetectedElements, log, setElementDetectionError, t, isProxyEnabled]);
 
   const handleDeleteSavedTestInModal = useCallback((testId: string) => { onDeleteTestInPage(testId); }, [onDeleteTestInPage]);
 
@@ -1309,17 +1219,22 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     setUrl(testToLoad.url || '');
     let srcToLoad = '';
 
-    if (testToLoad.url === "internal://test-page") {
-        srcToLoad = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-        setIsInternalTestPageLoaded(true);
-    } else if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
+    if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
         srcToLoad = testToLoad.url;
-        setIsInternalTestPageLoaded(false);
-    } else if (testToLoad.url) { 
-        srcToLoad = testToLoad.url; // e.g. file:///
-        setIsInternalTestPageLoaded(false);
+    } else if (testToLoad.url && testToLoad.url.startsWith('file:///')) {
+        srcToLoad = testToLoad.url;
         setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
+    } else if (testToLoad.url === "internal://test-page") {
+        log('createTestPage.logs.legacyInternalTestPageLoadAttempt', { name: testToLoad.name }, 'warning');
+        alert(t('createTestPage.alerts.internalPageRemovedLoad', { testName: testToLoad.name }));
+        setUrl('');
+        srcToLoad = '';
+        setElementDetectionError(t('createTestPage.alerts.internalPageRemoved'));
+    } else if (testToLoad.url) {
+      srcToLoad = testToLoad.url;
+      log('createTestPage.logs.unknownUrlTypeLoad', { url: testToLoad.url }, 'warning');
     }
+
 
     setIframeSrc(srcToLoad);
     setIsPagePreviewVisible(!!srcToLoad);
@@ -1331,15 +1246,20 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     
     let logKey = 'createTestPage.logs.testLoadedNoUrl';
     let params: Record<string,string|number|undefined> = { name: testToLoad.name };
-    if (testToLoad.url === "internal://test-page") {
-        logKey = 'createTestPage.logs.testLoadedInternal';
-    } else if (testToLoad.url) {
+    // if (testToLoad.url === "internal://test-page") { // This case is handled by alert and different logging now
+    //     logKey = 'createTestPage.logs.testLoadedInternal';
+    // } else
+    if (testToLoad.url && testToLoad.url !== "internal://test-page") {
         logKey = 'createTestPage.logs.testLoadedWithUrl'; 
         params.url = testToLoad.url;
+        log(logKey, params);
+    } else if (!testToLoad.url) { // Log if URL is empty
+        log(logKey, params); // Logs "Test loaded: ..."
     }
-    log(logKey, params);
+    // If it was "internal://test-page", specific logging already happened.
+
     setShowLoadModal(false);
-  }, [setUrl, setIframeSrc, setIsPagePreviewVisible, setTestSteps, setCurrentTestName, setCurrentTestId, setDetectedElements, log, setIsInternalTestPageLoaded, setElementDetectionError, t]);
+  }, [setUrl, setIframeSrc, setIsPagePreviewVisible, setTestSteps, setCurrentTestName, setCurrentTestId, setDetectedElements, log, setElementDetectionError, t]);
 
   return (
     <div className="flex flex-col h-full">
@@ -1349,7 +1269,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         isLoadingPage={isLoadingPage}
         isRunningTest={isRunningTest}
         handleLoadUrl={handleLoadUrl}
-        handleLoadInternalTestPage={handleLoadInternalTestPage}
         isPagePreviewVisible={isPagePreviewVisible}
         isDetectingElements={isDetectingElements}
         handleDetectElements={handleDetectElements}
@@ -1372,7 +1291,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
                 isPagePreviewVisible={isPagePreviewVisible} 
                 executionLog={executionLog} 
                 isRunningTest={isRunningTest} 
-                isInternalTestPage={isInternalTestPageLoaded} 
                 isProxyEnabled={isProxyEnabled} // Pass new prop
                 onClearLog={handleClearExecutionLog} 
             />
@@ -1409,7 +1327,10 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
                 <div>
                   <p className={`font-semibold ${theme === 'light' ? 'text-sky-700' : 'text-sky-300'}`}>{test.name}</p>
                   <p className={`text-xs ${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>
-                    {test.url === "internal://test-page" ? t('createTestPage.loadModal.urlLabel', { url: t('general.internalTestPageName')}) : t('createTestPage.loadModal.urlLabel', { url: test.url || t('createTestPage.loadModal.notAvailableUrl')})} - {t('createTestPage.loadModal.stepsLabel', { count: test.steps.length })}
+                    {t('createTestPage.loadModal.urlLabel', { url: test.url || t('createTestPage.loadModal.notAvailableUrl')})}
+                    {test.url === "internal://test-page" && <span className="text-yellow-500"> ({t('general.legacy')})</span>}
+                    {' - '}
+                    {t('createTestPage.loadModal.stepsLabel', { count: test.steps.length })}
                   </p>
                   <p className={`text-xs ${theme === 'light' ? 'text-slate-400' : 'text-gray-500'}`}>{t('createTestPage.loadModal.savedAtLabel', { date: new Date(test.createdAt).toLocaleString(locale) })}</p>
                 </div>
