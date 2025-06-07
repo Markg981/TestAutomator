@@ -7,6 +7,7 @@ import { Modal } from '../components/Modal';
 import { useTheme } from '../ThemeContext';
 import { useLocalization } from '../LocalizationContext';
 import { apiService } from '../services/apiService';
+import { HighlightOverlay } from '../components/HighlightOverlay';
 
 // Helper Functions
 // getActionDefinition is now imported from constants.tsx
@@ -198,7 +199,7 @@ interface ElementsPanelProps {
   isPagePreviewVisible: boolean;
   onDragStartElement: (event: DragEvent<HTMLElement>, elementId: string) => void;
   elementDetectionError: string | null;
-  onElementMouseEnter: (selector: string) => void;
+  onElementMouseEnter: (element: DetectedElement) => void; // Changed from (selector: string)
   onElementMouseLeave: () => void;
 }
 const ElementsPanel = React.memo<ElementsPanelProps>(({
@@ -229,7 +230,7 @@ const ElementsPanel = React.memo<ElementsPanelProps>(({
           key={el.id}
           draggable
           onDragStart={(e) => onDragStartElement(e, el.id)}
-          onMouseEnter={() => onElementMouseEnter(el.selector)} // New handler
+          onMouseEnter={() => onElementMouseEnter(el)} // Pass the whole element object
           onMouseLeave={onElementMouseLeave} // New handler
           className={`p-2.5 rounded shadow cursor-grab transition-colors text-sm
                       ${theme === 'light'
@@ -702,6 +703,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [isInternalTestPageLoaded, setIsInternalTestPageLoaded] = useState<boolean>(false);
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
+  const [highlightOverlayRect, setHighlightOverlayRect] = useState<{ top: number; left: number; width: number; height: number; } | null>(null);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -966,7 +968,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
             selector: el.selector || '', // CSS selector from Playwright
             attributes: el.attributes || {},
             text: el.text?.trim() || undefined,
-            // boundingBox: el.boundingBox // Available if needed later
+            boundingBox: el.boundingBox, // Ensure this is populated
           };
         });
 
@@ -1341,13 +1343,13 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
   const HIGHLIGHT_STYLE_ID = 'gstd-element-highlighter-style';
 
+  // applyHighlight and removeHighlight now primarily send messages to the iframe
   const applyHighlight = (selector: string) => {
     const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'HIGHLIGHT_ELEMENT', selector: selector }, '*');
     } else {
       console.warn('[DEBUG] applyHighlight: Iframe or contentWindow not available.');
-      // log('createTestPage.logs.highlightErrorNoContentWindow', { action: 'applyHighlight' }, 'warning');
     }
   };
 
@@ -1357,18 +1359,59 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       iframe.contentWindow.postMessage({ type: 'REMOVE_HIGHLIGHT' }, '*');
     } else {
       console.warn('[DEBUG] removeHighlight: Iframe or contentWindow not available.');
-      // log('createTestPage.logs.highlightErrorNoContentWindow', { action: 'removeHighlight' }, 'warning');
     }
   };
 
-  const handleElementMouseEnter = (selector: string) => {
-    setHighlightedElementSelector(selector); // Optional: if you need to track state for other reasons
-    applyHighlight(selector);
+  const handleElementMouseEnter = (element: DetectedElement) => {
+    setHighlightedElementSelector(element.selector); // Keep this for potential debugging/display
+    applyHighlight(element.selector); // Tell iframe to highlight its internal element
+
+    if (!element.boundingBox) {
+      setHighlightOverlayRect(null);
+      console.warn('[DEBUG] MouseEnter: Element has no boundingBox. Cannot display overlay.', element);
+      return;
+    }
+    const { x, y, width, height } = element.boundingBox;
+    if (width === 0 || height === 0) {
+        setHighlightOverlayRect(null);
+        console.warn('[DEBUG] MouseEnter: Element boundingBox has zero width or height.', element);
+        return;
+    }
+
+    const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+    if (!iframeElement) {
+      setHighlightOverlayRect(null);
+      console.warn('[DEBUG] MouseEnter: Iframe element not found.');
+      return;
+    }
+
+    const iframeRect = iframeElement.getBoundingClientRect();
+    // The overlay's parent is the div with 'relative' class.
+    // We need to find this container to correctly offset the overlay.
+    const overlayContainer = iframeElement.closest('.relative') as HTMLElement | null;
+
+    if (!overlayContainer) {
+        setHighlightOverlayRect(null);
+        console.warn('[DEBUG] MouseEnter: Overlay container with ".relative" class not found.');
+        return;
+    }
+    const overlayContainerRect = overlayContainer.getBoundingClientRect();
+
+    const calculatedTop = iframeRect.top - overlayContainerRect.top + y;
+    const calculatedLeft = iframeRect.left - overlayContainerRect.left + x;
+
+    setHighlightOverlayRect({
+      top: calculatedTop,
+      left: calculatedLeft,
+      width: width,
+      height: height,
+    });
   };
 
   const handleElementMouseLeave = () => {
-    setHighlightedElementSelector(null); // Optional
-    removeHighlight();
+    setHighlightedElementSelector(null);
+    removeHighlight(); // Tell iframe to remove its internal highlight
+    setHighlightOverlayRect(null); // Hide the parent-level overlay
   };
 
   useEffect(() => {
@@ -1452,20 +1495,21 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
           <div className="flex-grow overflow-hidden">
              <TestCanvas currentTestName={currentTestName} setCurrentTestName={setCurrentTestName} testSteps={testSteps} draggedItem={draggedItem} dropTargetInfo={dropTargetInfo} onDragOverCanvas={onDragOverGeneral} onDropOnCanvas={onDropOnCanvas} detectedElements={detectedElements} currentExecutingStepId={currentExecutingStepId} onDragStartStep={onDragStartStep} onDragOverStep={onDragOverStepOrElementZone} onDropOnStep={onDropOnStep} updateStepValue={updateStepValue} deleteTestStep={deleteTestStep} />
           </div>
-          <div className={`flex-grow border-t-2 overflow-hidden ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
-            <WebPreviewPanel 
-                iframeSrc={iframeSrc} 
-                actualLoadedUrl={url} 
+          <div className={`flex-grow border-t-2 overflow-hidden ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'} relative`}>
+            <WebPreviewPanel
+                iframeSrc={iframeSrc}
+                actualLoadedUrl={url}
                 isPagePreviewVisible={isPagePreviewVisible} 
                 executionLog={executionLog} 
                 isRunningTest={isRunningTest} 
-                isInternalTestPage={isInternalTestPageLoaded} 
+                isInternalTestPage={isInternalTestPageLoaded}
                 isProxyEnabled={isProxyEnabled} // Pass new prop
-                onClearLog={handleClearExecutionLog} 
+                onClearLog={handleClearExecutionLog}
             />
+            <HighlightOverlay rect={highlightOverlayRect} />
           </div>
         </div>
-        <ElementsPanel 
+        <ElementsPanel
           isDetectingElements={isDetectingElements} 
           detectedElements={detectedElements} 
           isPagePreviewVisible={isPagePreviewVisible} 
