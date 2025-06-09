@@ -704,7 +704,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
   const [highlightOverlayRect, setHighlightOverlayRect] = useState<{ top: number; left: number; width: number; height: number; } | null>(null);
-  const [currentPlaywrightSessionId, setCurrentPlaywrightSessionId] = useState<string | null>(null);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -719,113 +718,74 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
 
   const handleLoadUrl = useCallback(() => {
-    if (currentPlaywrightSessionId) {
-      try {
-        await apiService.closePlaywrightSession(currentPlaywrightSessionId);
-        log('createTestPage.logs.previousSessionClosed', { sessionId: currentPlaywrightSessionId }, 'info');
-        setCurrentPlaywrightSessionId(null);
-      } catch (error: any) {
-        log('createTestPage.logs.errorClosingPreviousSession', { sessionId: currentPlaywrightSessionId, error: error.message }, 'warning');
-        setCurrentPlaywrightSessionId(null); // Still nullify even if close failed
-      }
-    }
-
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
       alert(t('createTestPage.alerts.noUrl'));
       return;
     }
-
     setIsLoadingPage(true);
-    setIsPagePreviewVisible(false);
-    setIframeSrc(null); // Clear previous preview/screenshot
-    setDetectedElements([]);
-    setElementDetectionError(null);
+    setIsPagePreviewVisible(false); 
     setIsInternalTestPageLoaded(false);
-    log('createTestPage.logs.loadingUrl', { url: trimmedUrl }, 'info');
+    setElementDetectionError(null);
+    log('createTestPage.logs.loadingUrl', { url: trimmedUrl });
 
-    let targetUrlToLoad = trimmedUrl;
-    // Basic validation, backend createSession will do more thorough validation
-    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://') && !trimmedUrl.startsWith('file:///')) {
-        log('createTestPage.logs.errorInvalidUrl', { url: trimmedUrl }, 'error');
-        alert(t('createTestPage.alerts.invalidUrlFormat', { url: trimmedUrl }));
-        setIsLoadingPage(false);
-        return;
+    let srcToLoad: string;
+    if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+      srcToLoad = trimmedUrl;
+      log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl });
+    } else if (trimmedUrl.startsWith('file:///')) {
+      srcToLoad = trimmedUrl;
+      log('createTestPage.logs.loadingFileUrl', { url: trimmedUrl });
+      setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
+    } else {
+       setIsLoadingPage(false);
+       setIframeSrc(null);
+       setIsPagePreviewVisible(false);
+       log('createTestPage.logs.errorInvalidUrl', { url: trimmedUrl }, 'error');
+       alert(t('createTestPage.alerts.invalidUrlFormat', { url: trimmedUrl }));
+       return;
     }
+    
+    setTimeout(() => {
+        setIframeSrc(srcToLoad);
+        setIsPagePreviewVisible(true);
+        setDetectedElements([]);
+            // Ensure isInternalTestPageLoaded is false for external URLs
+            if (srcToLoad.startsWith('data:')) {
+                // This case is mostly handled by handleLoadInternalTestPage,
+                // but good to be explicit if a data URL were loaded here.
+                setIsInternalTestPageLoaded(true);
+            } else {
+                setIsInternalTestPageLoaded(false);
+        }
+        if (!currentTestId) { 
+            setTestSteps([]);
+            setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
+        }
+    }, 100); 
 
-    try {
-      console.log(`[DEBUG] Attempting to create Playwright session for URL: ${targetUrlToLoad}`);
-      const sessionData = await apiService.createPlaywrightSession(targetUrlToLoad);
-      setCurrentPlaywrightSessionId(sessionData.sessionId);
-      setIframeSrc(`data:image/png;base64,${sessionData.screenshot}`);
-      setIsPagePreviewVisible(true);
-      log('createTestPage.logs.playwrightSessionCreated', { sessionId: sessionData.sessionId, url: targetUrlToLoad }, 'success');
-      // Update page title or other info if needed from sessionData.title
-
-      if (!currentTestId) {
-        setTestSteps([]);
-        setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
-      }
-    } catch (error: any) {
-      log('createTestPage.logs.errorCreatingPlaywrightSession', { url: targetUrlToLoad, error: error.message }, 'error');
-      alert(`Failed to create Playwright session: ${error.message}`);
-      setIframeSrc(null);
-      setCurrentPlaywrightSessionId(null);
-    } finally {
-      setIsLoadingPage(false);
-    }
-  }, [url, currentPlaywrightSessionId, log, t, setUrl, setIframeSrc, setIsLoadingPage, setIsPagePreviewVisible, setDetectedElements, setElementDetectionError, setIsInternalTestPageLoaded, setCurrentPlaywrightSessionId, currentTestId, setCurrentTestName, setTestSteps]);
+  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, setIsInternalTestPageLoaded]);
 
   const handleLoadInternalTestPage = useCallback(() => {
-    if (currentPlaywrightSessionId) {
-      try {
-        await apiService.closePlaywrightSession(currentPlaywrightSessionId);
-        log('createTestPage.logs.previousSessionClosed', { sessionId: currentPlaywrightSessionId }, 'info');
-        setCurrentPlaywrightSessionId(null);
-      } catch (error: any) {
-        log('createTestPage.logs.errorClosingPreviousSession', { sessionId: currentPlaywrightSessionId, error: error.message }, 'warning');
-        setCurrentPlaywrightSessionId(null);
-      }
-    }
-
     setIsLoadingPage(true);
     setIsPagePreviewVisible(false);
-    setIframeSrc(null);
-    setDetectedElements([]);
     setElementDetectionError(null);
-    log('createTestPage.logs.loadingInternalTestPageViaPlaywright', undefined, 'info'); // New log key
+    log('createTestPage.logs.loadingInternalTestPage');
+    console.log("[DEBUG] handleLoadInternalTestPage called");
 
-    const internalPageSpecialUrl = "internal://test-page";
+    const internalPageDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
+    
+    setTimeout(() => {
+        console.log("[DEBUG] Setting iframeSrc for internal page and updating states.");
+        setUrl("internal://test-page"); 
+        setIframeSrc(internalPageDataUrl);
+        setIsPagePreviewVisible(true);
+        setIsInternalTestPageLoaded(true);
+        log('createTestPage.logs.internalTestPageLoaded');
+        setDetectedElements([]);
+    }, 100);
+  }, [setUrl, setIframeSrc, setIsLoadingPage, setIsPagePreviewVisible, log, setDetectedElements, setElementDetectionError]);
 
-    try {
-      console.log(`[DEBUG] Attempting to create Playwright session for Internal Test Page`);
-      const sessionData = await apiService.createPlaywrightSession(internalPageSpecialUrl);
-
-      setCurrentPlaywrightSessionId(sessionData.sessionId);
-      setUrl(internalPageSpecialUrl); // Set URL to the special identifier
-      setIframeSrc(`data:image/png;base64,${sessionData.screenshot}`);
-      setIsPagePreviewVisible(true);
-      setIsInternalTestPageLoaded(true); // Signifies the *intent* to use internal page logic
-      log('createTestPage.logs.playwrightSessionCreatedForInternal', { sessionId: sessionData.sessionId }, 'success'); // New log key
-
-      if (!currentTestId) {
-        setTestSteps([]);
-        setCurrentTestName(t('createTestPage.testCanvas.newTestNameDefault'));
-      }
-    } catch (error: any) {
-      log('createTestPage.logs.errorCreatingPlaywrightSession', { url: internalPageSpecialUrl, error: error.message }, 'error');
-      alert(`Failed to create Playwright session for internal page: ${error.message}`);
-      setIframeSrc(null);
-      setCurrentPlaywrightSessionId(null);
-      setIsInternalTestPageLoaded(false);
-    } finally {
-      setIsLoadingPage(false);
-    }
-  }, [currentPlaywrightSessionId, log, t, setUrl, setIframeSrc, setIsLoadingPage, setIsPagePreviewVisible, setDetectedElements, setElementDetectionError, setIsInternalTestPageLoaded, setCurrentPlaywrightSessionId, currentTestId, setCurrentTestName, setTestSteps]);
-
-  // This useEffect handles script injection for the *frontend* iframe if its src is ever set to a non-data URL
-  // and not the internal page. With Playwright backend, iframeSrc is mostly a screenshot.
-  // However, if some other logic sets iframeSrc to a live URL for the frontend iframe, this would apply.
   const handleIframeLoadOrError = useCallback(() => {
     setIsLoadingPage(false);
     console.log(`[DEBUG] iframe load/error event. isLoadingPage set to false. iframeSrc: ${iframeSrc}, isInternalTestPageLoaded: ${isInternalTestPageLoaded}`);
@@ -1121,7 +1081,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     log("createTestPage.logs.testExecutionCompleted", undefined, 'info');
     setIsRunningTest(false);
     setCurrentExecutingStepId(null);
-  }, [testSteps, detectedElements, setIsRunningTest, log, t, setUrl, setDetectedElements, currentPlaywrightSessionId]);
+  }, [testSteps, detectedElements, setIsRunningTest, log, t, setUrl, setDetectedElements /*, currentPlaywrightSessionId */]); // Add currentPlaywrightSessionId to dependencies when it's a state
 
   const handleSaveTestLocal = useCallback(async () => {
     if (testSteps.length === 0) {
@@ -1397,27 +1357,13 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframeElement) {
       iframeElement.addEventListener('load', handleIframeLoadOrError);
-      iframeElement.addEventListener('error', handleIframeLoadOrError);
-      // console.log('[DEBUG] Attached load/error listeners to iframe element.');
+      iframeElement.addEventListener('error', handleIframeLoadOrError); 
       return () => {
         iframeElement.removeEventListener('load', handleIframeLoadOrError);
         iframeElement.removeEventListener('error', handleIframeLoadOrError);
-        // console.log('[DEBUG] Removed load/error listeners from iframe element.');
       };
     }
-  }, [iframeSrc, handleIframeLoadOrError]); // handleIframeLoadOrError is a dependency
-
-  useEffect(() => {
-    // ComponentWillUnmount equivalent for cleanup
-    return () => {
-      if (currentPlaywrightSessionId) {
-        console.log(`[DEBUG] Component unmounting. Closing Playwright session: ${currentPlaywrightSessionId}`);
-        apiService.closePlaywrightSession(currentPlaywrightSessionId)
-          .then(() => console.log('[DEBUG] Playwright session closed on unmount:', currentPlaywrightSessionId))
-          .catch(error => console.warn('[DEBUG] Error closing Playwright session on unmount:', error.message || error));
-      }
-    };
-  }, [currentPlaywrightSessionId]); // Effect runs when currentPlaywrightSessionId changes (and on unmount)
+  }, [iframeSrc, handleIframeLoadOrError]);
 
   const handleLoadSavedTests = useCallback(async () => {
     try {
