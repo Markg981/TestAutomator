@@ -37,9 +37,7 @@ router.post('/detect-elements', async (req, res) => {
   }
 });
 */
-  }
-});
-
+  
 // Get elements from an existing Playwright session
 router.get('/sessions/:sessionId/elements', async (req, res) => {
   const { sessionId } = req.params;
@@ -87,7 +85,7 @@ router.delete('/sessions/:sessionId', async (req, res) => {
     res.status(200).json({ message: `Session ${sessionId} closed successfully.` }); // Or 204 No Content
   } catch (error: any) {
     console.error(`[PlaywrightRoutes] Error closing session ${sessionId}:`, error);
-    if (error.message.includes('Session not found')) {
+    if (error.message.includes('Session not found')) { 
          res.status(404).json({ error: error.message });
     } else {
          res.status(500).json({ error: 'Failed to close Playwright session', details: error.message });
@@ -109,18 +107,18 @@ router.post('/sessions/:sessionId/actions', async (req, res) => {
     // - For 'goto_url': it's the URL.
     // - For 'wait': it's the duration in milliseconds (if provided, else service default).
     // 'selector' is used for element-specific actions like 'click', 'type', 'select', 'verify_text'.
-
+    
     console.log(`Executing action: ${action} for session ${sessionId} with selector: ${selector} and value: ${value}`);
     const result = await playwrightService.executeAction(sessionId, action, selector, value);
     res.status(200).json(result);
   } catch (error: any) {
     console.error(`[PlaywrightRoutes] Error executing action '${action}' for session ${sessionId}:`, error.message);
     // More detailed error logging for debugging:
-    // console.error(error);
+    // console.error(error); 
 
     if (error.message.includes('Session not found')) {
       res.status(404).json({ error: error.message, action: action });
-    } else if (error.message.includes('Unsupported action') ||
+    } else if (error.message.includes('Unsupported action') || 
                error.message.includes('required for') || // Covers "Selector required for..." etc.
                error.message.includes('URL required for') ||
                error.message.includes('Selector and expected text required for')) {
