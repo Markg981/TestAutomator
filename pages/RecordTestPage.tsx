@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { TestStep, ActionType, ActionDefinition } from '../types';
-import { getElementCssSelector, getElementUserFriendlyName, INTERNAL_TEST_PAGE_HTML } from './CreateTestPage';
+import { getElementCssSelector, getElementUserFriendlyName } from './CreateTestPage';
 import { useTheme } from '../ThemeContext';
 import { useLocalization } from '../LocalizationContext';
 import { AVAILABLE_ACTIONS, getActionDefinition } from '../constants';
@@ -24,7 +24,6 @@ export const RecordTestPage: React.FC<RecordTestPageProps> = ({ isProxyEnabled }
   const [executionLog, setExecutionLog] = useState<string[]>([t('recordTestPage.logs.welcomeMessage')]);
   const [isRunningTest, setIsRunningTest] = useState<boolean>(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [isInternalTestPageLoaded, setIsInternalTestPageLoaded] = useState<boolean>(false);
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
     let fullMessage = t(messageKey, params);
@@ -68,27 +67,6 @@ export const RecordTestPage: React.FC<RecordTestPageProps> = ({ isProxyEnabled }
     }
   }, [url, log, t, sessionId]);
 
-  const handleLoadInternalTestPage = useCallback(() => {
-    setIsLoadingPage(true);
-    setRecordedSteps([]);
-    log('recordTestPage.logs.loadingInternalTestPage');
-
-    // Close existing session if any
-    if (sessionId) {
-      apiService.closeSession(sessionId).catch(console.error);
-      setSessionId(null);
-    }
-
-    setTimeout(() => {
-        const internalPageDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-        setUrl("internal://test-page"); 
-      setPageScreenshot(null); // We don't need a screenshot for the internal test page
-        setIsLoadingPage(false); 
-        setIsInternalTestPageLoaded(true);
-        log('recordTestPage.logs.internalTestPageLoadedSuccess');
-    }, 100); 
-  }, [setUrl, setIsLoadingPage, log, sessionId]);
-  
   useEffect(() => {
     // Cleanup session on component unmount
     return () => { 
@@ -126,17 +104,6 @@ export const RecordTestPage: React.FC<RecordTestPageProps> = ({ isProxyEnabled }
         >
               {isLoadingPage ? t('recordTestPage.loadingButton') : t('recordTestPage.loadButton')}
         </button>
-        <button 
-          onClick={handleLoadInternalTestPage} 
-              disabled={isLoadingPage}
-              className={`px-4 py-2 rounded ${
-                theme === 'light'
-                  ? 'bg-green-500 text-white hover:bg-green-600'
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              } disabled:opacity-50`}
-            >
-              {t('recordTestPage.loadInternalPageButton')}
-        </button>
           </div>
             </div>
 
@@ -144,14 +111,7 @@ export const RecordTestPage: React.FC<RecordTestPageProps> = ({ isProxyEnabled }
           <div className="w-2/3 p-4">
             <div className="h-full flex flex-col">
               <div className="flex-grow border rounded overflow-hidden">
-                {isInternalTestPageLoaded ? (
-            <iframe
-              id={IFRAME_RECORD_ID}
-                    src={`data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`}
-                    className="w-full h-full border-0"
-                    sandbox="allow-same-origin allow-scripts"
-                  />
-                ) : pageScreenshot ? (
+                {pageScreenshot ? (
                   <img
                     src={pageScreenshot}
                     alt="Page preview"
