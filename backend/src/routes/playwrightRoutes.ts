@@ -3,6 +3,7 @@ import { playwrightService } from '../services/playwright';
 
 const router = Router();
 
+/*
 router.post('/detect-elements', async (req, res) => {
   const { url } = req.body;
 
@@ -33,6 +34,29 @@ router.post('/detect-elements', async (req, res) => {
       }
     }
     res.status(500).json({ error: 'Failed to detect elements' });
+  }
+});
+*/
+  }
+});
+
+// Get elements from an existing Playwright session
+router.get('/sessions/:sessionId/elements', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Session ID is required to detect elements.' });
+  }
+
+  try {
+    const elements = await playwrightService.scanElements(sessionId);
+    res.status(200).json({ elements }); // Ensure the response structure matches frontend expectations
+  } catch (error: any) {
+    console.error(`[PlaywrightRoutes] Error scanning elements for session ${sessionId}:`, error);
+    if (error.message.includes('Session not found')) {
+      res.status(404).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to scan elements', details: error.message });
+    }
   }
 });
 

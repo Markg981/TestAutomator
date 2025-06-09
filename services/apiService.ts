@@ -95,16 +95,22 @@ export const apiService = {
     return data.elements;
   },
 
-  async detectElementsByPlaywright(url: string): Promise<any[]> { // Using any[] for now, will be ElementInfo[]
-    const response = await fetch(`${API_BASE_URL}/playwright/detect-elements`, {
-      method: 'POST',
+  async detectElementsByPlaywright(sessionId: string): Promise<any[]> { // Using any[] for now, will be ElementInfo[]
+    const response = await fetch(`${API_BASE_URL}/playwright/sessions/${sessionId}/elements`, {
+      method: 'GET',
       headers: getHeaders(),
-      body: JSON.stringify({ url }),
     });
+
     if (!response.ok) {
-      const errorBody = await response.text();
-      console.error('Failed to detect elements by Playwright:', errorBody);
-      throw new Error(`Failed to detect elements by Playwright: ${response.status} ${response.statusText}`);
+      // Try to parse error response for more details, similar to other functions
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: response.statusText, details: await response.text() };
+      }
+      console.error(`Failed to detect elements by Playwright for session ${sessionId}:`, errorData);
+      throw new Error(errorData.error || `Failed to detect elements by Playwright for session ${sessionId}: ${response.status}`);
     }
     const data = await response.json();
     return data.elements; // Assuming the backend returns { elements: ElementInfo[] }
@@ -190,6 +196,46 @@ export const apiService = {
     if (!response.ok) {
       throw new Error('Failed to delete test');
     }
+  },
+
+  async createPlaywrightSession(url: string): Promise<{ sessionId: string; screenshot: string; title: string }> {
+    const response = await fetch(`${API_BASE_URL}/playwright/sessions`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ url })
+    });
+
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: response.statusText, details: await response.text() };
+      }
+      console.error('Failed to create Playwright session:', errorData);
+      throw new Error(errorData.error || `Failed to create Playwright session: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  async closePlaywrightSession(sessionId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/playwright/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: getHeaders() // Content-Type might be omitted if no body, but harmless
+    });
+
+    if (!response.ok) {
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        errorData = { error: response.statusText, details: await response.text() };
+      }
+      console.error(`Failed to close Playwright session ${sessionId}:`, errorData);
+      throw new Error(errorData.error || `Failed to close Playwright session ${sessionId}: ${response.status}`);
+    }
+    // console.log(`Session ${sessionId} close request successful.`); // Optional: log success
+    // return response.json(); // if backend sends a meaningful JSON body like { message: "..." }
   },
 
   async executePlaywrightAction(sessionId: string, actionDetails: any): Promise<any> {

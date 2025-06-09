@@ -256,7 +256,16 @@ export const translations: Record<Locale, Translations> = {
         waitingForPageLoadBeforeDetect: "AVVISO: La pagina è ancora in fase di caricamento. Il rilevamento elementi inizierà a breve.",
         detectingElementsWithPlaywright: "Rilevamento elementi con Playwright per URL: {{url}}...",
         errorDuringElementDetection: "ERRORE: Fallimento durante il rilevamento elementi da {{source}}. Causa: {{error}}",
-        attemptedScriptInjection: "Tentativo di iniezione script: {{result}}"
+        attemptedScriptInjection: "Tentativo di iniezione script: {{result}}",
+        noActivePlaywrightSession: "Impossibile eseguire il test: Nessuna sessione Playwright attiva. Per favore carica prima una pagina.",
+        previousSessionClosed: "Sessione Playwright precedente {{sessionId}} chiusa.",
+        errorClosingPreviousSession: "Attenzione: Errore durante la chiusura della sessione Playwright precedente {{sessionId}}: {{error}}",
+        playwrightSessionCreated: "Sessione Playwright {{sessionId}} creata per URL: {{url}}.",
+        errorCreatingPlaywrightSession: "Errore durante la creazione della sessione Playwright per {{url}}: {{error}}",
+        playwrightSessionCreatedForInternal: "Sessione Playwright {{sessionId}} creata per la Pagina di Test Interna.",
+        loadingInternalTestPageViaPlaywright: "Caricamento Pagina di Test Interna tramite sessione Playwright...",
+        noActiveSessionForDetect: "Impossibile rilevare gli elementi: Nessuna sessione Playwright attiva. Per favore carica prima una pagina.",
+        detectingElementsInSession: "Tentativo di rilevare gli elementi nella sessione: {{sessionId}}..."
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Vai a URL",
@@ -614,7 +623,16 @@ export const translations: Record<Locale, Translations> = {
         waitingForPageLoadBeforeDetect: "WARNING: Page is still loading. Element detection will commence shortly.",
         detectingElementsWithPlaywright: "Detecting elements with Playwright for URL: {{url}}...",
         errorDuringElementDetection: "ERROR: Failed during element detection from {{source}}. Cause: {{error}}",
-        attemptedScriptInjection: "Script injection attempt: {{result}}"
+        attemptedScriptInjection: "Script injection attempt: {{result}}",
+        noActivePlaywrightSession: "Cannot run test: No active Playwright session. Please load a page first.",
+        previousSessionClosed: "Previous Playwright session {{sessionId}} closed.",
+        errorClosingPreviousSession: "Warning: Error closing previous Playwright session {{sessionId}}: {{error}}",
+        playwrightSessionCreated: "Playwright session {{sessionId}} created for URL: {{url}}.",
+        errorCreatingPlaywrightSession: "Error creating Playwright session for {{url}}: {{error}}",
+        playwrightSessionCreatedForInternal: "Playwright session {{sessionId}} created for Internal Test Page.",
+        loadingInternalTestPageViaPlaywright: "Loading Internal Test Page via Playwright session...",
+        noActiveSessionForDetect: "Cannot detect elements: No active Playwright session. Please load a page first.",
+        detectingElementsInSession: "Attempting to detect elements in session: {{sessionId}}..."
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Go to URL",
