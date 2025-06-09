@@ -7,6 +7,7 @@ import { Modal } from '../components/Modal';
 import { useTheme } from '../ThemeContext';
 import { useLocalization } from '../LocalizationContext';
 import { apiService } from '../services/apiService';
+import { HighlightOverlay } from '../components/HighlightOverlay';
 
 // Helper Functions
 // getActionDefinition is now imported from constants.tsx
@@ -14,6 +15,56 @@ import { apiService } from '../services/apiService';
 const getElementDefinition = (elementId: string, elements: DetectedElement[]): DetectedElement | undefined => {
   return elements.find(e => e.id === elementId);
 };
+
+const iframeHighlightingScript = `
+(function() {
+    let lastHighlightedElement = null;
+    let originalOutline = '';
+
+    window.addEventListener('message', function(event) {
+        const data = event.data;
+
+        if (data && data.type === 'HIGHLIGHT_ELEMENT' && data.selector) {
+            if (lastHighlightedElement) {
+                try {
+                    lastHighlightedElement.style.outline = originalOutline;
+                } catch(e) {
+                    console.warn('Highlighter: Error removing previous outline - ', e);
+                }
+            }
+
+            try {
+                const elementToHighlight = document.querySelector(data.selector);
+                if (elementToHighlight) {
+                    lastHighlightedElement = elementToHighlight;
+                    originalOutline = elementToHighlight.style.outline || '';
+                    elementToHighlight.style.outline = '2px solid red';
+                    // elementToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                } else {
+                    console.warn('Highlighter: Element not found for selector:', data.selector);
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            } catch(e) {
+                console.error('Highlighter: Error querying or applying highlight for selector "' + data.selector + '" - ', e);
+                lastHighlightedElement = null;
+                originalOutline = '';
+            }
+        } else if (data && data.type === 'REMOVE_HIGHLIGHT') {
+            if (lastHighlightedElement) {
+                try {
+                    lastHighlightedElement.style.outline = originalOutline;
+                } catch(e) {
+                    console.warn('Highlighter: Error removing outline - ', e);
+                } finally {
+                    lastHighlightedElement = null;
+                    originalOutline = '';
+                }
+            }
+        }
+    });
+})();
+`;
 
 // --- Sub-Components ---
 interface HeaderProps {
@@ -142,7 +193,7 @@ interface ElementsPanelProps {
   isPagePreviewVisible: boolean;
   onDragStartElement: (event: DragEvent<HTMLElement>, elementId: string) => void;
   elementDetectionError: string | null;
-  onElementMouseEnter: (selector: string) => void;
+  onElementMouseEnter: (element: DetectedElement) => void; // Changed from (selector: string)
   onElementMouseLeave: () => void;
 }
 const ElementsPanel = React.memo<ElementsPanelProps>(({
@@ -173,7 +224,7 @@ const ElementsPanel = React.memo<ElementsPanelProps>(({
           key={el.id}
           draggable
           onDragStart={(e) => onDragStartElement(e, el.id)}
-          onMouseEnter={() => onElementMouseEnter(el.selector)} // New handler
+          onMouseEnter={() => onElementMouseEnter(el)} // Pass the whole element object
           onMouseLeave={onElementMouseLeave} // New handler
           className={`p-2.5 rounded shadow cursor-grab transition-colors text-sm
                       ${theme === 'light'
@@ -417,8 +468,7 @@ const WebPreviewPanel = React.memo<WebPreviewPanelProps>(({
           />
         )
       ) : (
-        <div className={`w-full h-4/5 flex-grow flex items-center justify-center p-4
-                       ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
+        <div className={`w-full h-4/5 flex-grow flex items-center justify-center p-4 ${theme === 'light' ? 'bg-slate-100 text-slate-500' : 'bg-slate-700 text-gray-500'}`}>
           {isPagePreviewVisible ? t('createTestPage.webPreviewPanel.loadingPreview') : t('createTestPage.webPreviewPanel.loadPagePrompt')}
         </div>
       )}
@@ -537,9 +587,7 @@ export const getElementUserFriendlyName = (element: HTMLElement, tagName: string
   if (typeAttr && tagName === 'INPUT') return `${tagName} (${typeAttr})`;
   return tagName;
 };
-
-const PROXY_PREFIX = '/__app_proxy__/';
-
+    
 export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   url, setUrl, iframeSrc, setIframeSrc, isLoadingPage, setIsLoadingPage, isPagePreviewVisible, setIsPagePreviewVisible,
   detectedElements, setDetectedElements, isDetectingElements, setIsDetectingElements,
@@ -559,6 +607,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [isGeneratingNLPSteps, setIsGeneratingNLPSteps] = useState<boolean>(false);
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
+  const [highlightOverlayRect, setHighlightOverlayRect] = useState<{ top: number; left: number; width: number; height: number; } | null>(null);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -622,7 +671,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
     }
   }, [iframeSrc, log, setIsLoadingPage, isProxyEnabled]);
-
 
   const handleDetectElements = useCallback(async () => {
     console.log(`[DEBUG] handleDetectElements called. isPagePreviewVisible: ${isPagePreviewVisible}, iframeSrc: ${iframeSrc}, isLoadingPage: ${isLoadingPage}`);
@@ -758,7 +806,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
             selector: el.selector || '', // CSS selector from Playwright
             attributes: el.attributes || {},
             text: el.text?.trim() || undefined,
-            // boundingBox: el.boundingBox // Available if needed later
+            boundingBox: el.boundingBox,
           };
         });
 
@@ -784,35 +832,49 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, setElementDetectionError, isLoadingPage, url]);
 
   const handleRunTest = useCallback(async () => {
+    // TODO: Get currentPlaywrightSessionId from state once session management for Playwright is added
+    const currentPlaywrightSessionId = "mock-session-id"; // Placeholder - replace with actual session ID
+
+    if (!currentPlaywrightSessionId) {
+      log('Cannot run test: No active Playwright session.', undefined, 'error');
+      alert('Cannot run test: No active Playwright session. Please load a page first using a Playwright-enabled method.');
+      setIsRunningTest(false);
+      return;
+    }
+
     if (testSteps.length === 0) {
       alert(t('createTestPage.alerts.noStepsToRun'));
       return;
     }
     setIsRunningTest(true);
-    log("createTestPage.logs.testExecutionStarting");
+    log("createTestPage.logs.testExecutionStarting", undefined, 'info');
     let testHasFailed = false;
 
     for (const [index, step] of testSteps.entries()) {
       setCurrentExecutingStepId(step.id);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for UI update
 
       const actionDef = getActionDefinition(step.actionId);
       const elementDef = step.targetElementId ? getElementDefinition(step.targetElementId, detectedElements) : undefined;
-      const actionNameDisplay = actionDef ? t(actionDef.nameKey) : t('createTestPage.testStepCard.unknownAction');
-      
-      log('createTestPage.logs.executingStep', { current: index + 1, total: testSteps.length, actionName: actionNameDisplay });
+      const actionNameDisplay = actionDef ? t(actionDef.nameKey) : 'Unknown Action';
+
+      log(`createTestPage.logs.executingStep`, { current: index + 1, total: testSteps.length, actionName: actionNameDisplay }, 'info');
 
       if (!actionDef) {
-        log('createTestPage.logs.errorActionDefinitionNotFound', undefined, 'error');
-        testHasFailed = true; continue;
+        log(`Step ${index + 1}: Action definition not found. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
+
       if (actionDef.requiresElement && !elementDef && step.targetElementId) {
-         log('createTestPage.logs.errorElementNotFoundForStep', { elementId: step.targetElementId }, 'error');
-         testHasFailed = true; continue;
+        log(`Step ${index + 1} (${actionNameDisplay}): Element (ID: ${step.targetElementId}) not found in detected elements. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
-      if (actionDef.requiresElement && !step.targetElementId) {
-        log('createTestPage.logs.errorNoTargetElement', undefined, 'error');
-        testHasFailed = true; continue;
+       if (actionDef.requiresElement && !step.targetElementId && actionDef.type !== ActionType.TAKE_SCREENSHOT) { // Screenshot might be full page
+        log(`Step ${index + 1} (${actionNameDisplay}): No target element specified for this action. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
 
       const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
@@ -892,59 +954,40 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
               testHasFailed = true; break;
             }
 
-            if (actionDef.type === ActionType.CLICK) {
-              targetElement.click();
-              log('createTestPage.logs.clickSuccess', { elementName: elementDef.name, selector: elementDef.selector });
-              await new Promise(resolve => setTimeout(resolve, 700)); 
-              log('createTestPage.logs.clickActionCompletedUpdatingElements');
-              handleDetectElements(); 
-            } else if (actionDef.type === ActionType.INPUT_TEXT) {
-              if ('value' in targetElement) {
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).focus();
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).value = step.inputValue || '';
-                targetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-                targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).blur();
-                log('createTestPage.logs.inputTextSuccess', { value: step.inputValue, elementName: elementDef.name });
-              } else {
-                log('createTestPage.logs.errorInputElementNotInputField', { elementName: elementDef.name }, 'error');
-                testHasFailed = true;
-              }
-            } else if (actionDef.type === ActionType.VERIFY_TEXT) {
-              const actualText = ('value' in targetElement && (targetElement as HTMLInputElement).value !== undefined) ? (targetElement as HTMLInputElement).value : targetElement.textContent;
-              if (actualText?.trim() === (step.inputValue || '').trim()) {
-                log('createTestPage.logs.verifyTextSuccess', { expectedText: step.inputValue, elementName: elementDef.name }, 'success');
-              } else {
-                log('createTestPage.logs.verifyTextFailed', { elementName: elementDef.name, expectedText: step.inputValue, actualText: (actualText?.trim() || '') }, 'error');
-                testHasFailed = true;
-              }
-            }
-          } catch (e: any) {
-            log(`createTestPage.logs.error${actionDef.type}InteractionFailed`, { elementName: elementDef.name, error: (e.message || String(e)) }, 'error');
-            testHasFailed = true;
+    try {
+        console.log(`[DEBUG] Executing Playwright action: ${actionDetails.action} with selector: ${actionDetails.selector}, value: ${actionDetails.value}`);
+        const response = await apiService.executePlaywrightAction(currentPlaywrightSessionId, actionDetails);
+
+        if (response.success) {
+          let message = `Step ${index + 1} (${actionNameDisplay}): ${response.message || 'Completed successfully.'}`;
+          if (actionDef.type === ActionType.VERIFY_TEXT) {
+            message = `Step ${index + 1} (${actionNameDisplay}): ${response.message} (Expected: "${response.expected}", Actual: "${response.actual}")`;
+          } else if (actionDef.type === ActionType.GOTO_URL) {
+             setUrl(response.navigatedUrl); // Update frontend URL state
+             // Potentially clear detected elements and re-detect, or prompt user
+             setDetectedElements([]);
+             log('Navigated to new URL. Elements cleared. Please re-detect if needed.', undefined, 'info');
           }
-          break;
-        case ActionType.WAIT:
-          const waitSeconds = parseFloat(step.inputValue || '1');
-          if (isNaN(waitSeconds) || waitSeconds <= 0) {
-            log('createTestPage.logs.waitActionInvalidValue', { value: step.inputValue }, 'warning');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            log('createTestPage.logs.waitCompleted', {seconds: 1});
-          } else {
-            log('createTestPage.logs.waitActionLog', { seconds: waitSeconds });
-            await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
-            log('createTestPage.logs.waitCompleted', { seconds: waitSeconds });
-          }
-          break;
-        default: log('createTestPage.logs.unhandledActionType', undefined, 'warning');
+          log(message, undefined, 'success');
+        } else {
+          const errorMessage = `Step ${index + 1} (${actionNameDisplay}): Failed. ${response.message || 'No specific error message.'}` +
+                             (actionDef.type === ActionType.VERIFY_TEXT ? ` (Expected: "${response.expected}", Actual: "${response.actual}")` : '');
+          log(errorMessage, undefined, 'error');
+          testHasFailed = true;
+        }
+      } catch (error: any) {
+        log(`Step ${index + 1} (${actionNameDisplay}): API Error. ${error.message || 'Unknown error'}`, undefined, 'error');
+        testHasFailed = true;
       }
-      
+
       if (testHasFailed) {
-         log('createTestPage.logs.executionInterruptedCriticalError', undefined, 'error'); break;
+        log("createTestPage.logs.executionInterruptedCriticalError", undefined, 'error');
+        break;
       }
     }
-    log(testHasFailed ? 'createTestPage.logs.testResultFailed' : 'createTestPage.logs.testResultSuccess', undefined, testHasFailed ? 'error' : 'success');
-    log("createTestPage.logs.testExecutionCompleted");
+
+    log(testHasFailed ? "createTestPage.logs.testResultFailed" : "createTestPage.logs.testResultSuccess", undefined, testHasFailed ? 'error' : 'success');
+    log("createTestPage.logs.testExecutionCompleted", undefined, 'info');
     setIsRunningTest(false);
     setCurrentExecutingStepId(null);
   }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isProxyEnabled, setElementDetectionError]);
@@ -1152,46 +1195,76 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [setExecutionLog, t]);
 
   const HIGHLIGHT_STYLE_ID = 'gstd-element-highlighter-style';
-  let lastHighlightedElement: HTMLElement | null = null;
-  let originalOutline: string | null = null;
 
+  // applyHighlight and removeHighlight now primarily send messages to the iframe
   const applyHighlight = (selector: string) => {
-    if (!(iframeSrc && iframeSrc.startsWith('data:'))) return; // Only for internal test page
-
     const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-    if (!iframe?.contentDocument) return;
-
-    removeHighlight(); // Clear previous highlight
-
-    try {
-      const element = iframe.contentDocument.querySelector(selector) as HTMLElement | null;
-      if (element) {
-        lastHighlightedElement = element;
-        originalOutline = element.style.outline;
-        element.style.outline = '2px solid red'; // Example highlight style
-        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-      }
-    } catch (e) {
-      console.warn(`Error trying to highlight element with selector: ${selector}`, e);
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'HIGHLIGHT_ELEMENT', selector: selector }, '*');
+    } else {
+      console.warn('[DEBUG] applyHighlight: Iframe or contentWindow not available.');
     }
   };
 
   const removeHighlight = () => {
-    if (lastHighlightedElement && originalOutline !== null) {
-      lastHighlightedElement.style.outline = originalOutline;
+    const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'REMOVE_HIGHLIGHT' }, '*');
+    } else {
+      console.warn('[DEBUG] removeHighlight: Iframe or contentWindow not available.');
     }
-    lastHighlightedElement = null;
-    originalOutline = null;
   };
 
-  const handleElementMouseEnter = (selector: string) => {
-    setHighlightedElementSelector(selector); // Optional: if you need to track state for other reasons
-    applyHighlight(selector);
+  const handleElementMouseEnter = (element: DetectedElement) => {
+    setHighlightedElementSelector(element.selector); // Keep this for potential debugging/display
+    applyHighlight(element.selector); // Tell iframe to highlight its internal element
+
+    if (!element.boundingBox) {
+      setHighlightOverlayRect(null);
+      console.warn('[DEBUG] MouseEnter: Element has no boundingBox. Cannot display overlay.', element);
+      return;
+    }
+    const { x, y, width, height } = element.boundingBox;
+    if (width === 0 || height === 0) {
+        setHighlightOverlayRect(null);
+        console.warn('[DEBUG] MouseEnter: Element boundingBox has zero width or height.', element);
+        return;
+    }
+
+    const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+    if (!iframeElement) {
+      setHighlightOverlayRect(null);
+      console.warn('[DEBUG] MouseEnter: Iframe element not found.');
+      return;
+    }
+
+    const iframeRect = iframeElement.getBoundingClientRect();
+    // The overlay's parent is the div with 'relative' class.
+    // We need to find this container to correctly offset the overlay.
+    const overlayContainer = iframeElement.closest('.relative') as HTMLElement | null;
+
+    if (!overlayContainer) {
+        setHighlightOverlayRect(null);
+        console.warn('[DEBUG] MouseEnter: Overlay container with ".relative" class not found.');
+        return;
+    }
+    const overlayContainerRect = overlayContainer.getBoundingClientRect();
+
+    const calculatedTop = iframeRect.top - overlayContainerRect.top + y;
+    const calculatedLeft = iframeRect.left - overlayContainerRect.left + x;
+
+    setHighlightOverlayRect({
+      top: calculatedTop,
+      left: calculatedLeft,
+      width: width,
+      height: height,
+    });
   };
 
   const handleElementMouseLeave = () => {
-    setHighlightedElementSelector(null); // Optional
-    removeHighlight();
+    setHighlightedElementSelector(null);
+    removeHighlight(); // Tell iframe to remove its internal highlight
+    setHighlightOverlayRect(null); // Hide the parent-level overlay
   };
 
   useEffect(() => {
@@ -1284,19 +1357,20 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
           <div className="flex-grow overflow-hidden">
              <TestCanvas currentTestName={currentTestName} setCurrentTestName={setCurrentTestName} testSteps={testSteps} draggedItem={draggedItem} dropTargetInfo={dropTargetInfo} onDragOverCanvas={onDragOverGeneral} onDropOnCanvas={onDropOnCanvas} detectedElements={detectedElements} currentExecutingStepId={currentExecutingStepId} onDragStartStep={onDragStartStep} onDragOverStep={onDragOverStepOrElementZone} onDropOnStep={onDropOnStep} updateStepValue={updateStepValue} deleteTestStep={deleteTestStep} />
           </div>
-          <div className={`flex-grow border-t-2 overflow-hidden ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'}`}>
-            <WebPreviewPanel 
-                iframeSrc={iframeSrc} 
-                actualLoadedUrl={url} 
+          <div className={`flex-grow border-t-2 overflow-hidden ${theme === 'light' ? 'border-slate-300' : 'border-slate-700'} relative`}>
+            <WebPreviewPanel
+                iframeSrc={iframeSrc}
+                actualLoadedUrl={url}
                 isPagePreviewVisible={isPagePreviewVisible} 
                 executionLog={executionLog} 
                 isRunningTest={isRunningTest} 
                 isProxyEnabled={isProxyEnabled} // Pass new prop
-                onClearLog={handleClearExecutionLog} 
+                onClearLog={handleClearExecutionLog}
             />
+            <HighlightOverlay rect={highlightOverlayRect} />
           </div>
         </div>
-        <ElementsPanel 
+        <ElementsPanel
           isDetectingElements={isDetectingElements} 
           detectedElements={detectedElements} 
           isPagePreviewVisible={isPagePreviewVisible} 

@@ -255,7 +255,8 @@ export const translations: Record<Locale, Translations> = {
         confirmDeleteTest: "Sei sicuro di voler eliminare questo test?",
         waitingForPageLoadBeforeDetect: "AVVISO: La pagina è ancora in fase di caricamento. Il rilevamento elementi inizierà a breve.",
         detectingElementsWithPlaywright: "Rilevamento elementi con Playwright per URL: {{url}}...",
-        errorDuringElementDetection: "ERRORE: Fallimento durante il rilevamento elementi da {{source}}. Causa: {{error}}"
+        errorDuringElementDetection: "ERRORE: Fallimento durante il rilevamento elementi da {{source}}. Causa: {{error}}",
+        attemptedScriptInjection: "Tentativo di iniezione script: {{result}}"
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Vai a URL",
@@ -612,7 +613,8 @@ export const translations: Record<Locale, Translations> = {
         confirmDeleteTest: "Are you sure you want to delete this test?",
         waitingForPageLoadBeforeDetect: "WARNING: Page is still loading. Element detection will commence shortly.",
         detectingElementsWithPlaywright: "Detecting elements with Playwright for URL: {{url}}...",
-        errorDuringElementDetection: "ERROR: Failed during element detection from {{source}}. Cause: {{error}}"
+        errorDuringElementDetection: "ERROR: Failed during element detection from {{source}}. Cause: {{error}}",
+        attemptedScriptInjection: "Script injection attempt: {{result}}"
       },
       actionNames: {
         [ActionType.GOTO_URL]: "Go to URL",

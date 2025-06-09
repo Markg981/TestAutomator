@@ -1,5 +1,12 @@
-import { SavedTest, TestStep } from './types';
+import { SavedTest, TestStep } from '../types'; // Adjusted path
 import { authService } from './authService';
+
+// Define PlaywrightActionDetails (optional but good practice)
+interface PlaywrightActionDetails {
+  action: string; // e.g., 'click', 'type', 'goto_url', 'verify_text', 'wait'
+  selector?: string;
+  value?: string;    // Used for text to type, URL, expected text, milliseconds for wait
+}
 
 // Use the current origin to handle dynamic port assignment
 const API_BASE_URL = 'https://localhost:3001/api';
@@ -183,5 +190,30 @@ export const apiService = {
     if (!response.ok) {
       throw new Error('Failed to delete test');
     }
+  },
+
+  async executePlaywrightAction(sessionId: string, actionDetails: any): Promise<any> {
+    // const API_BASE_URL is already defined at the top of the file
+    // const getHeaders is already defined at the top of the file
+
+    const response = await fetch(`${API_BASE_URL}/playwright/sessions/${sessionId}/actions`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(actionDetails)
+    });
+
+    if (!response.ok) {
+      // Try to parse error response for more details
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        // If response is not JSON, use status text
+        errorData = { error: response.statusText, details: await response.text() };
+      }
+      console.error('Failed to execute Playwright action:', errorData);
+      throw new Error(errorData.error || `Failed to execute Playwright action: ${response.status}`);
+    }
+    return response.json();
   }
-}; 
+};
