@@ -28,6 +28,7 @@ export interface ActionDefinition {
 }
 
 export interface DetectedElement {
+  boundingBox: any;
   id: string;
   name: string; 
   tagName: string; 
