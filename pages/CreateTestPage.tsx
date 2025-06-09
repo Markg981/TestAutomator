@@ -968,7 +968,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
             selector: el.selector || '', // CSS selector from Playwright
             attributes: el.attributes || {},
             text: el.text?.trim() || undefined,
-            boundingBox: el.boundingBox, // Ensure this is populated
+            boundingBox: el.boundingBox,
           };
         });
 
@@ -994,155 +994,94 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, isInternalTestPageLoaded, setElementDetectionError, isLoadingPage, url]);
 
   const handleRunTest = useCallback(async () => {
+    // TODO: Get currentPlaywrightSessionId from state once session management for Playwright is added
+    const currentPlaywrightSessionId = "mock-session-id"; // Placeholder - replace with actual session ID
+
+    if (!currentPlaywrightSessionId) {
+      log('Cannot run test: No active Playwright session.', undefined, 'error');
+      alert('Cannot run test: No active Playwright session. Please load a page first using a Playwright-enabled method.');
+      setIsRunningTest(false);
+      return;
+    }
+
     if (testSteps.length === 0) {
       alert(t('createTestPage.alerts.noStepsToRun'));
       return;
     }
     setIsRunningTest(true);
-    log("createTestPage.logs.testExecutionStarting");
+    log("createTestPage.logs.testExecutionStarting", undefined, 'info');
     let testHasFailed = false;
 
     for (const [index, step] of testSteps.entries()) {
       setCurrentExecutingStepId(step.id);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 300)); // Small delay for UI update
 
       const actionDef = getActionDefinition(step.actionId);
       const elementDef = step.targetElementId ? getElementDefinition(step.targetElementId, detectedElements) : undefined;
-      const actionNameDisplay = actionDef ? t(actionDef.nameKey) : t('createTestPage.testStepCard.unknownAction');
-      
-      log('createTestPage.logs.executingStep', { current: index + 1, total: testSteps.length, actionName: actionNameDisplay });
+      const actionNameDisplay = actionDef ? t(actionDef.nameKey) : 'Unknown Action';
+
+      log(`createTestPage.logs.executingStep`, { current: index + 1, total: testSteps.length, actionName: actionNameDisplay }, 'info');
 
       if (!actionDef) {
-        log('createTestPage.logs.errorActionDefinitionNotFound', undefined, 'error');
-        testHasFailed = true; continue;
+        log(`Step ${index + 1}: Action definition not found. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
+
       if (actionDef.requiresElement && !elementDef && step.targetElementId) {
-         log('createTestPage.logs.errorElementNotFoundForStep', { elementId: step.targetElementId }, 'error');
-         testHasFailed = true; continue;
+        log(`Step ${index + 1} (${actionNameDisplay}): Element (ID: ${step.targetElementId}) not found in detected elements. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
-      if (actionDef.requiresElement && !step.targetElementId) {
-        log('createTestPage.logs.errorNoTargetElement', undefined, 'error');
-        testHasFailed = true; continue;
+       if (actionDef.requiresElement && !step.targetElementId && actionDef.type !== ActionType.TAKE_SCREENSHOT) { // Screenshot might be full page
+        log(`Step ${index + 1} (${actionNameDisplay}): No target element specified for this action. Skipping.`, undefined, 'error');
+        testHasFailed = true;
+        continue;
       }
 
-      const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-      const currentIframeSrcForLog = iframeElement?.src || iframeSrc || "N/A";
-      
-      switch (actionDef.type) {
-        case ActionType.GOTO_URL:
-          const targetUrlValue = step.inputValue || '';
-          log('createTestPage.logs.gotoUrlActionLog', { url: targetUrlValue });
-          let newIframeSrc: string;
-          if (targetUrlValue.startsWith('http://') || targetUrlValue.startsWith('https://')) {
-            if (isProxyEnabled) {
-                newIframeSrc = `${PROXY_PREFIX}${encodeURIComponent(targetUrlValue)}`;
-            } else {
-                newIframeSrc = targetUrlValue;
-                setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
-            }
-            setIsInternalTestPageLoaded(false);
-          } else if (targetUrlValue.startsWith('file:///')) {
-            newIframeSrc = targetUrlValue;
-            setIsInternalTestPageLoaded(false);
-            log('createTestPage.logs.navigatingToFileUrl', { url: targetUrlValue }, 'warning');
-            setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
-          } else if (targetUrlValue === "internal://test-page") {
-            newIframeSrc = `data:text/html;charset=utf-8,${encodeURIComponent(INTERNAL_TEST_PAGE_HTML)}`;
-            setIsInternalTestPageLoaded(true);
-            setElementDetectionError(null);
-          }
-          else {
-            log('createTestPage.logs.errorInvalidNavigationUrl', { url: targetUrlValue }, 'error');
-            testHasFailed = true;
-            break; // from switch
-          }
-          
-          setIframeSrc(newIframeSrc); 
-          setUrl(targetUrlValue); 
-          log('createTestPage.logs.navigatingToUrl', { url: targetUrlValue });
-          await new Promise(resolve => setTimeout(resolve, 1500)); 
-          log('createTestPage.logs.pageNavigationCompleted', { url: targetUrlValue });
-          setDetectedElements([]); 
-          break;
+      const actionDetails: any = {
+        action: actionDef.type.toLowerCase(), // Convert enum ActionType to lowercase string e.g. "goto_url"
+        selector: elementDef?.selector,
+        value: step.inputValue, // Used for URL, text to type, expected text, wait duration
+      };
 
-        case ActionType.INPUT_TEXT:
-        case ActionType.CLICK:
-        case ActionType.VERIFY_TEXT:
-          if (!elementDef) {
-            log(actionDef.type === ActionType.CLICK ? 'createTestPage.logs.errorElementNotSpecifiedForClick' : actionDef.type === ActionType.INPUT_TEXT ? 'createTestPage.logs.errorElementNotSpecifiedForInput' : 'createTestPage.logs.errorElementNotSpecifiedForVerify', undefined, 'error');
-            testHasFailed = true;
-            break;
-          }
-          const baseLogKey = actionDef.type === ActionType.CLICK ? 'click' : actionDef.type === ActionType.INPUT_TEXT ? 'input' : 'verify';
-          log(`createTestPage.logs.${baseLogKey}ActionLog`, { elementName: elementDef.name, value: step.inputValue, expectedText: step.inputValue });
+      try {
+        console.log(`[DEBUG] Executing Playwright action: ${actionDetails.action} with selector: ${actionDetails.selector}, value: ${actionDetails.value}`);
+        const response = await apiService.executePlaywrightAction(currentPlaywrightSessionId, actionDetails);
 
-          try {
-            if (!iframeElement?.contentDocument) {
-              log('createTestPage.logs.errorAccessingIframeContentForAction', { actionName: actionNameDisplay, source: currentIframeSrcForLog }, 'error');
-              testHasFailed = true; break;
-            }
-            const targetElement = iframeElement.contentDocument.querySelector(elementDef.selector) as HTMLElement | null;
-            if (!targetElement) {
-              log(`createTestPage.logs.error${actionDef.type}ElementNotFound`, { elementName: elementDef.name, selector: elementDef.selector }, 'error');
-              testHasFailed = true; break;
-            }
-
-            if (actionDef.type === ActionType.CLICK) {
-              targetElement.click();
-              log('createTestPage.logs.clickSuccess', { elementName: elementDef.name, selector: elementDef.selector });
-              await new Promise(resolve => setTimeout(resolve, 700)); 
-              log('createTestPage.logs.clickActionCompletedUpdatingElements');
-              handleDetectElements(); 
-            } else if (actionDef.type === ActionType.INPUT_TEXT) {
-              if ('value' in targetElement) {
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).focus();
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).value = step.inputValue || '';
-                targetElement.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-                targetElement.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-                (targetElement as HTMLInputElement | HTMLTextAreaElement).blur();
-                log('createTestPage.logs.inputTextSuccess', { value: step.inputValue, elementName: elementDef.name });
-              } else {
-                log('createTestPage.logs.errorInputElementNotInputField', { elementName: elementDef.name }, 'error');
-                testHasFailed = true;
-              }
-            } else if (actionDef.type === ActionType.VERIFY_TEXT) {
-              const actualText = ('value' in targetElement && (targetElement as HTMLInputElement).value !== undefined) ? (targetElement as HTMLInputElement).value : targetElement.textContent;
-              if (actualText?.trim() === (step.inputValue || '').trim()) {
-                log('createTestPage.logs.verifyTextSuccess', { expectedText: step.inputValue, elementName: elementDef.name }, 'success');
-              } else {
-                log('createTestPage.logs.verifyTextFailed', { elementName: elementDef.name, expectedText: step.inputValue, actualText: (actualText?.trim() || '') }, 'error');
-                testHasFailed = true;
-              }
-            }
-          } catch (e: any) {
-            log(`createTestPage.logs.error${actionDef.type}InteractionFailed`, { elementName: elementDef.name, error: (e.message || String(e)) }, 'error');
-            testHasFailed = true;
+        if (response.success) {
+          let message = `Step ${index + 1} (${actionNameDisplay}): ${response.message || 'Completed successfully.'}`;
+          if (actionDef.type === ActionType.VERIFY_TEXT) {
+            message = `Step ${index + 1} (${actionNameDisplay}): ${response.message} (Expected: "${response.expected}", Actual: "${response.actual}")`;
+          } else if (actionDef.type === ActionType.GOTO_URL) {
+             setUrl(response.navigatedUrl); // Update frontend URL state
+             // Potentially clear detected elements and re-detect, or prompt user
+             setDetectedElements([]);
+             log('Navigated to new URL. Elements cleared. Please re-detect if needed.', undefined, 'info');
           }
-          break;
-        case ActionType.WAIT:
-          const waitSeconds = parseFloat(step.inputValue || '1');
-          if (isNaN(waitSeconds) || waitSeconds <= 0) {
-            log('createTestPage.logs.waitActionInvalidValue', { value: step.inputValue }, 'warning');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            log('createTestPage.logs.waitCompleted', {seconds: 1});
-          } else {
-            log('createTestPage.logs.waitActionLog', { seconds: waitSeconds });
-            await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000));
-            log('createTestPage.logs.waitCompleted', { seconds: waitSeconds });
-          }
-          break;
-        default: log('createTestPage.logs.unhandledActionType', undefined, 'warning');
+          log(message, undefined, 'success');
+        } else {
+          const errorMessage = `Step ${index + 1} (${actionNameDisplay}): Failed. ${response.message || 'No specific error message.'}` +
+                             (actionDef.type === ActionType.VERIFY_TEXT ? ` (Expected: "${response.expected}", Actual: "${response.actual}")` : '');
+          log(errorMessage, undefined, 'error');
+          testHasFailed = true;
+        }
+      } catch (error: any) {
+        log(`Step ${index + 1} (${actionNameDisplay}): API Error. ${error.message || 'Unknown error'}`, undefined, 'error');
+        testHasFailed = true;
       }
-      
+
       if (testHasFailed) {
-         log('createTestPage.logs.executionInterruptedCriticalError', undefined, 'error'); break;
+        log("createTestPage.logs.executionInterruptedCriticalError", undefined, 'error');
+        break;
       }
     }
-    log(testHasFailed ? 'createTestPage.logs.testResultFailed' : 'createTestPage.logs.testResultSuccess', undefined, testHasFailed ? 'error' : 'success');
-    log("createTestPage.logs.testExecutionCompleted");
+
+    log(testHasFailed ? "createTestPage.logs.testResultFailed" : "createTestPage.logs.testResultSuccess", undefined, testHasFailed ? 'error' : 'success');
+    log("createTestPage.logs.testExecutionCompleted", undefined, 'info');
     setIsRunningTest(false);
     setCurrentExecutingStepId(null);
-  }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isInternalTestPageLoaded, setIsInternalTestPageLoaded, isProxyEnabled, setElementDetectionError]);
+  }, [testSteps, detectedElements, setIsRunningTest, log, t, setUrl, setDetectedElements /*, currentPlaywrightSessionId */]); // Add currentPlaywrightSessionId to dependencies when it's a state
 
   const handleSaveTestLocal = useCallback(async () => {
     if (testSteps.length === 0) {

@@ -167,7 +167,7 @@ class PlaywrightService {
     return screenshot.toString('base64');
   }
 
-  async executeAction(sessionId: string, action: string, selector?: string, value?: string): Promise<void> {
+  async executeAction(sessionId: string, action: string, selector?: string, value?: string): Promise<any> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error('Session not found');
 
@@ -189,11 +189,39 @@ class PlaywrightService {
       case 'wait':
         const timeout = value ? parseInt(value) : 1000;
         await session.page.waitForTimeout(timeout);
-        break;
+        return { success: true, action: 'wait', duration: timeout };
+      case 'goto_url':
+        if (!value) throw new Error('URL required for goto_url action');
+        await session.page.goto(value, { waitUntil: 'networkidle' });
+        return { success: true, action: 'goto_url', navigatedUrl: value };
+      case 'verify_text':
+        if (!selector || value === undefined) throw new Error('Selector and expected text required for verify_text action');
+        // Try textContent first, then inputValue for form elements
+        let actualText = await session.page.textContent(selector);
+        if (actualText === null || actualText.trim() === '') {
+            try {
+                const tagName = await session.page.$eval(selector, el => el.tagName);
+                if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+                    actualText = await session.page.inputValue(selector);
+                }
+            } catch (e) {
+                // Element might not be an input/textarea/select, or other error, stick with textContent
+                console.warn(`Could not evaluate tagName or inputValue for selector "${selector}", falling back to textContent. Error: ${e}`);
+            }
+        }
+        const success = actualText?.trim() === value.trim();
+        return {
+          success: success,
+          action: 'verify_text',
+          selector: selector,
+          expected: value,
+          actual: actualText?.trim(),
+          message: success ? 'Text verification successful.' : `Text verification failed. Expected: "${value}", Actual: "${actualText?.trim()}"`
+        };
       default:
         throw new Error(`Unsupported action: ${action}`);
     }
   }
 }
 
-export const playwrightService = new PlaywrightService(); 
+export const playwrightService = new PlaywrightService();
