@@ -954,9 +954,28 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
               testHasFailed = true; break;
             }
 
-    try {
-        console.log(`[DEBUG] Executing Playwright action: ${actionDetails.action} with selector: ${actionDetails.selector}, value: ${actionDetails.value}`);
-        const response = await apiService.executePlaywrightAction(currentPlaywrightSessionId, actionDetails);
+            // TODO: This is where the Playwright API call should be.
+            // The following is a placeholder and needs to be replaced with the actual Playwright integration.
+            // For now, let's simulate success for CLICK and INPUT_TEXT, and a specific check for VERIFY_TEXT.
+
+            // Construct actionDetails based on actionDef.type
+            let actionDetails: any = { // Replace 'any' with a more specific type if available
+                action: actionDef.type, // e.g., 'CLICK', 'INPUT_TEXT', 'VERIFY_TEXT'
+                selector: elementDef.selector,
+                // value might be needed for INPUT_TEXT or VERIFY_TEXT
+            };
+
+            if (actionDef.type === ActionType.INPUT_TEXT) {
+                actionDetails.value = step.inputValue;
+            } else if (actionDef.type === ActionType.VERIFY_TEXT) {
+                actionDetails.value = step.inputValue; // The text to verify
+            }
+            // Add other properties to actionDetails as needed by your Playwright execution function
+
+
+            try {
+              console.log(`[DEBUG] Executing Playwright action: ${actionDetails.action} with selector: ${actionDetails.selector}, value: ${actionDetails.value}`);
+              const response = await apiService.executePlaywrightAction(currentPlaywrightSessionId, actionDetails);
 
         if (response.success) {
           let message = `Step ${index + 1} (${actionNameDisplay}): ${response.message || 'Completed successfully.'}`;
@@ -982,9 +1001,36 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
       if (testHasFailed) {
         log("createTestPage.logs.executionInterruptedCriticalError", undefined, 'error');
+        // No break here, the switch's break will handle it. Or the outer if(testHasFailed) will.
+      }
+    } catch (error: any) {
+      log(`Step ${index + 1} (${actionNameDisplay}): Unexpected error during action setup. ${error.message || 'Unknown error'}`, undefined, 'error');
+      testHasFailed = true;
+      // No break here, as the switch case's own break will be hit,
+      // or if testHasFailed is true, the subsequent if(testHasFailed) outside this try-catch will break.
+    }
+          break; // Existing break for the switch case for INPUT_TEXT, CLICK, VERIFY_TEXT
+
+        case ActionType.WAIT:
+          // ... (existing WAIT case)
+          break;
+
+        case ActionType.TAKE_SCREENSHOT:
+          // ... (existing TAKE_SCREENSHOT case)
+          break;
+
+        // ... other cases ...
+
+        default:
+          log(`Step ${index + 1}: Action type "${actionDef.type}" not implemented yet. Skipping.`, undefined, 'warning');
+          break;
+      } // End of switch
+
+      if (testHasFailed) { // This is the check that will break the loop if any step failed
+        log("createTestPage.logs.executionInterruptedCriticalError", undefined, 'error');
         break;
       }
-    }
+    } // End of for loop
 
     log(testHasFailed ? "createTestPage.logs.testResultFailed" : "createTestPage.logs.testResultSuccess", undefined, testHasFailed ? 'error' : 'success');
     log("createTestPage.logs.testExecutionCompleted", undefined, 'info');
