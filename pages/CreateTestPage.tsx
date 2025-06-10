@@ -4,6 +4,7 @@ import { AVAILABLE_ACTIONS, getActionDefinition } from '../constants';
 import { saveTestToLocalStorage, loadAllTestsFromLocalStorage, deleteTestFromLocalStorage, updateTestInLocalStorage } from '../services/testStorageService';
 import { generateStepsFromNaturalLanguage } from '../services/geminiService';
 import { Modal } from '../components/Modal';
+import Spinner from '../components/Spinner';
 import { useTheme } from '../ThemeContext';
 import { useLocalization } from '../LocalizationContext';
 import { apiService } from '../services/apiService';
@@ -104,20 +105,20 @@ const Header = React.memo<HeaderProps>(({
                       : 'bg-slate-700 text-gray-200 border-slate-600 focus:ring-2 focus:ring-sky-500 placeholder-gray-400'}`}
       />
       <button onClick={handleLoadUrl} disabled={isLoadingPage || isRunningTest}
-              className={`px-4 py-2 rounded disabled:opacity-50 transition-colors
+              className={`px-4 py-2 rounded disabled:opacity-50 transition-colors flex items-center justify-center
                           ${theme === 'light' ? 'bg-sky-500 hover:bg-sky-600 text-white' : 'bg-sky-600 hover:bg-sky-500 text-white'}`}>
-        {isLoadingPage ? t('general.loading') : t('createTestPage.header.loadPageButton')}
+        {isLoadingPage ? <Spinner size="small" color="text-white" /> : t('createTestPage.header.loadPageButton')}
       </button>
       <button 
         onClick={handleDetectElements} 
         disabled={isLoadingPage || !isPagePreviewVisible || isDetectingElements || isRunningTest}
-        className={`px-4 py-2 rounded disabled:opacity-50 transition-colors
+        className={`px-4 py-2 rounded disabled:opacity-50 transition-colors flex items-center justify-center
                           ${theme === 'light' ? 'bg-teal-500 hover:bg-teal-600 text-white' : 'bg-teal-600 hover:bg-teal-500 text-white'}`}>
-        {isDetectingElements ? t('createTestPage.header.detectingElementsButton') : t('createTestPage.header.detectElementsButton')}
+        {isDetectingElements ? <Spinner size="small" color="text-white" /> : t('createTestPage.header.detectElementsButton')}
       </button>
       <button onClick={handleRunTest} disabled={testStepsCount === 0 || isRunningTest || isLoadingPage || isDetectingElements}
-              className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded disabled:opacity-50 transition-colors">
-        {isRunningTest ? t('createTestPage.header.runningTestButton') : t('createTestPage.header.runTestButton')}
+              className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded disabled:opacity-50 transition-colors flex items-center justify-center">
+        {isRunningTest ? <Spinner size="small" color="text-white" /> : t('createTestPage.header.runTestButton')}
       </button>
       <button onClick={onSaveTest} disabled={isRunningTest || testStepsCount === 0}
               className={`px-4 py-2 rounded disabled:opacity-50 transition-colors
@@ -178,10 +179,10 @@ const ActionsPanel = React.memo<ActionsPanelProps>(({
         <button
             onClick={handleGenerateNLPSteps}
             disabled={isGeneratingNLPSteps || !naturalLanguageInput.trim()}
-            className={`w-full mt-2 text-white px-3 py-1.5 rounded disabled:opacity-50 transition-colors text-sm
+            className={`w-full mt-2 text-white px-3 py-1.5 rounded disabled:opacity-50 transition-colors text-sm flex items-center justify-center
                         ${theme === 'light' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-amber-600 hover:bg-amber-500'}`}
         >
-            {isGeneratingNLPSteps ? t('createTestPage.actionsPanel.generatingStepsButton') : t('createTestPage.actionsPanel.generateStepsButton')}
+            {isGeneratingNLPSteps ? <Spinner size="small" color="text-white" /> : t('createTestPage.actionsPanel.generateStepsButton')}
         </button>
       </div>
     </aside>
@@ -205,7 +206,12 @@ const ElementsPanel = React.memo<ElementsPanelProps>(({
   return (
     <aside className={`w-72 p-4 space-y-2 overflow-y-auto h-full shrink-0 ${theme === 'light' ? 'bg-slate-100 border-l border-slate-300' : 'bg-slate-800'}`}>
       <h3 className={`text-lg font-semibold mb-3 ${theme === 'light' ? 'text-sky-700' : 'text-sky-400'}`}>{t('createTestPage.elementsPanel.title')}</h3>
-      {isDetectingElements && <p className={`text-sm ${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>{t('createTestPage.elementsPanel.detectingMessage')}</p>}
+      {isDetectingElements && (
+          <div className="flex flex-col items-center justify-center p-4">
+            <Spinner size="medium" />
+            <p className={`text-sm mt-2 ${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>{t('createTestPage.elementsPanel.detectingMessage')}</p>
+          </div>
+        )}
       
       {elementDetectionError && (
         <div className={`p-3 rounded-md text-xs mb-2 ${theme === 'light' ? 'bg-yellow-100 text-yellow-700 border border-yellow-300' : 'bg-yellow-800 bg-opacity-30 text-yellow-300 border border-yellow-700'}`}>
@@ -609,6 +615,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [elementDetectionError, setElementDetectionError] = useState<string | null>(null);
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
   const [highlightOverlayRect, setHighlightOverlayRect] = useState<{ top: number; left: number; width: number; height: number; } | null>(null);
+  const [isLoadingSavedTests, setIsLoadingSavedTests] = useState<boolean>(false);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -1318,13 +1325,35 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (iframeElement) {
       iframeElement.addEventListener('load', handleIframeLoadOrError);
-      iframeElement.addEventListener('error', handleIframeLoadOrError); 
+      iframeElement.addEventListener('error', handleIframeLoadOrError);
       return () => {
         iframeElement.removeEventListener('load', handleIframeLoadOrError);
         iframeElement.removeEventListener('error', handleIframeLoadOrError);
       };
     }
   }, [iframeSrc, handleIframeLoadOrError]);
+
+  useEffect(() => {
+    const loadInitialTests = async () => {
+      setIsLoadingSavedTests(true);
+      // Ensure `log` is in scope. If CreateTestPageProps defines it, it's fine.
+      // If `log` is defined within CreateTestPage, ensure it's stable (e.g. useCallback)
+      // For this subtask, we assume `log` is available and stable.
+      log('createTestPage.logs.loadingInitialTests');
+      try {
+        const tests = await loadAllTestsFromLocalStorage();
+        setSavedTests(tests);
+        log('createTestPage.logs.loadedInitialTestsCount', { count: tests.length });
+      } catch (error) {
+        console.error('Error loading initial tests from local storage:', error);
+        log('createTestPage.logs.errorLoadingInitialTests', { message: String(error) }, 'error');
+      } finally {
+        setIsLoadingSavedTests(false);
+      }
+    };
+    loadInitialTests();
+  }, [setSavedTests, log]); // Add `log` to dependency array.
+
 
   const handleLoadSavedTests = useCallback(async () => {
     try {
@@ -1441,7 +1470,13 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       <Modal isOpen={showLoadModal} onClose={() => setShowLoadModal(false)} title={t('createTestPage.loadModal.title')}
          footer={<div className="flex justify-end"><button onClick={() => setShowLoadModal(false)} className={`px-4 py-2 rounded transition-colors ${theme === 'light' ? 'bg-slate-200 hover:bg-slate-300 text-slate-700' : 'bg-slate-600 hover:bg-slate-500 text-white'}`}>{t('general.close')}</button></div>}
       >
-        {savedTests.length === 0 ? ( <p className={`${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>{t('createTestPage.loadModal.noSavedTests')}</p> ) : (
+        {isLoadingSavedTests ? (
+          <div className="flex justify-center items-center p-8">
+            <Spinner size="medium" />
+          </div>
+        ) : savedTests.length === 0 ? (
+          <p className={`${theme === 'light' ? 'text-slate-500' : 'text-gray-400'}`}>{t('createTestPage.loadModal.noSavedTests')}</p>
+        ) : (
           <ul className="space-y-2 max-h-96 overflow-y-auto">
             {savedTests.map(test => (
               <li key={test.id} className={`p-3 rounded shadow flex justify-between items-center ${theme === 'light' ? 'bg-slate-50 border border-slate-200' : 'bg-slate-700'}`}>
