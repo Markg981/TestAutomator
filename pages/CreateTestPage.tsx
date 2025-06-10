@@ -11,6 +11,7 @@ import { HighlightOverlay } from '../components/HighlightOverlay';
 
 // Helper Functions
 // getActionDefinition is now imported from constants.tsx
+const PROXY_PREFIX = '/api/proxy?url=';
 
 const getElementDefinition = (elementId: string, elements: DetectedElement[]): DetectedElement | undefined => {
   return elements.find(e => e.id === elementId);

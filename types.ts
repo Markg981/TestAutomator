@@ -29,11 +29,17 @@ export interface ActionDefinition {
 
 export interface DetectedElement {
   id: string;
-  name: string; 
-  tagName: string; 
-  attributes: Record<string, string>; 
+  name: string;
+  tagName: string;
   selector: string;
-  text?: string; 
+  attributes: Record<string, any>; 
+  text?: string;
+  boundingBox?: { 
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }; 
 }
 
 export interface TestStep {

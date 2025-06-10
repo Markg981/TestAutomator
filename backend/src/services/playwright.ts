@@ -172,19 +172,23 @@ class PlaywrightService {
     if (!session) throw new Error('Session not found');
 
     session.lastActivity = Date.now();
+    const iframeSelector = "#web-preview-iframe";
 
     switch (action) {
       case 'click':
         if (!selector) throw new Error('Selector required for click action');
-        await session.page.click(selector);
+        const frameClick = session.page.frameLocator(iframeSelector);
+        await frameClick.locator(selector).click({ timeout: 10000 });
         break;
       case 'type':
         if (!selector || !value) throw new Error('Selector and value required for type action');
-        await session.page.fill(selector, value);
+        const frameType = session.page.frameLocator(iframeSelector);
+        await frameType.locator(selector).fill(value, { timeout: 10000 });
         break;
       case 'select':
         if (!selector || !value) throw new Error('Selector and value required for select action');
-        await session.page.selectOption(selector, value);
+        const frameSelect = session.page.frameLocator(iframeSelector);
+        await frameSelect.locator(selector).selectOption(value, { timeout: 10000 });
         break;
       case 'wait':
         const timeout = value ? parseInt(value) : 1000;
@@ -196,17 +200,17 @@ class PlaywrightService {
         return { success: true, action: 'goto_url', navigatedUrl: value };
       case 'verify_text':
         if (!selector || value === undefined) throw new Error('Selector and expected text required for verify_text action');
-        // Try textContent first, then inputValue for form elements
-        let actualText = await session.page.textContent(selector);
+        const frameVerify = session.page.frameLocator(iframeSelector);
+        const element = frameVerify.locator(selector);
+        let actualText = await element.textContent({ timeout: 5000 }); // Prioritize textContent
         if (actualText === null || actualText.trim() === '') {
             try {
-                const tagName = await session.page.$eval(selector, el => el.tagName);
+                const tagName = await element.evaluate(el => el.tagName);
                 if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-                    actualText = await session.page.inputValue(selector);
+                    actualText = await element.inputValue({ timeout: 5000 });
                 }
             } catch (e) {
-                // Element might not be an input/textarea/select, or other error, stick with textContent
-                console.warn(`Could not evaluate tagName or inputValue for selector "${selector}", falling back to textContent. Error: ${e}`);
+                console.warn(`Could not evaluate tagName or inputValue for selector "${selector}" in iframe, falling back to textContent. Error: ${e}`);
             }
         }
         const success = actualText?.trim() === value.trim();

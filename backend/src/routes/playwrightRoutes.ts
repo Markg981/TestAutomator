@@ -3,39 +3,6 @@ import { playwrightService } from '../services/playwright';
 
 const router = Router();
 
-router.post('/detect-elements', async (req, res) => {
-  const { url } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: 'URL is required' });
-  }
-
-  let sessionId: string | null = null;
-
-  try {
-    const sessionDetails = await playwrightService.createSession(url);
-    sessionId = sessionDetails.sessionId;
-
-    const elements = await playwrightService.scanElements(sessionId);
-
-    await playwrightService.closeSession(sessionId);
-    // Reset sessionId after closing to avoid trying to close it again in finally
-    sessionId = null;
-
-    res.status(200).json({ elements });
-  } catch (error) {
-    console.error('Failed to detect elements:', error);
-    if (sessionId) {
-      try {
-        await playwrightService.closeSession(sessionId);
-      } catch (closeError) {
-        console.error('Failed to close session during error handling:', closeError);
-      }
-    }
-    res.status(500).json({ error: 'Failed to detect elements' });
-  }
-});
-
 // Create a new Playwright session
 router.post('/sessions', async (req, res) => {
   const { url } = req.body;
@@ -67,6 +34,27 @@ router.delete('/sessions/:sessionId', async (req, res) => {
          res.status(404).json({ error: error.message });
     } else {
          res.status(500).json({ error: 'Failed to close Playwright session', details: error.message });
+    }
+  }
+});
+
+// New route for session-based element scanning
+router.get('/sessions/:sessionId/elements', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Session ID is required to scan elements.' });
+  }
+  try {
+    // Optional: could also pass req.query.url if the page needs to be navigated first
+    // For now, assume the session's page is already at the correct URL.
+    const elements = await playwrightService.scanElements(sessionId);
+    res.status(200).json({ elements });
+  } catch (error: any) {
+    console.error(`[PlaywrightRoutes] Error scanning elements for session ${sessionId}:`, error);
+    if (error.message.includes('Session not found')) {
+      res.status(404).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: 'Failed to scan elements', details: error.message });
     }
   }
 });
