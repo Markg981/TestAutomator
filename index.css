@@ -2,7 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom styles */
+/* Add these if they don't exist, or if animate-spin is not working from Tailwind defaults */
+@layer utilities {
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .animate-spin {
+    animation: spin 1s linear infinite;
+  }
+}
+
+/* General body styles (example, might already exist) */
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -15,4 +27,4 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
-} 
+}
