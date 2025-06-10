@@ -95,4 +95,37 @@ router.post('/sessions/:sessionId/actions', async (req, res) => {
   }
 });
 
+router.post('/detect-elements', async (req, res) => {
+  const { url } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required to detect elements.' });
+  }
+
+  let sessionId: string | null = null;
+  try {
+    const sessionDetails = await playwrightService.createSession(url);
+    sessionId = sessionDetails.sessionId;
+
+    const elements = await playwrightService.scanElements(sessionId);
+    res.status(200).json({ elements });
+  } catch (error: any) {
+    console.error(`[PlaywrightRoutes] Error during element detection for URL ${url}:`, error);
+    // Determine status code based on error type if possible, otherwise default to 500
+    const statusCode = error.message?.includes('Session not found') ? 404 : // Should not happen if session was just created
+                       error.message?.includes('Failed to create Playwright session') ? 500 :
+                       error.message?.includes('Failed to scan elements') ? 500 :
+                       500;
+    res.status(statusCode).json({ error: 'Failed to detect elements', details: error.message });
+  } finally {
+    if (sessionId) {
+      try {
+        await playwrightService.closeSession(sessionId);
+      } catch (closeError: any) {
+        console.error(`[PlaywrightRoutes] Error closing session ${sessionId} during element detection cleanup:`, closeError);
+        // Optionally, log this error but the primary error response to the client would have already been sent.
+      }
+    }
+  }
+});
+
 export default router;
