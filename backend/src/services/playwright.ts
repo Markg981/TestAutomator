@@ -20,6 +20,7 @@ interface ElementInfo {
     width: number;
     height: number;
   };
+  frameSelector?: string; // New field for iframe context
 }
 
 class PlaywrightService {
@@ -131,89 +132,155 @@ class PlaywrightService {
 
     session.lastActivity = Date.now();
 
-    return await session.page.evaluate(() => {
-      function getXPath(element: Element): string {
-        if (element.id) return `//*[@id="${element.id}"]`;
-        
-        const paths: string[] = [];
-        let current = element;
-        
-        while (current.parentNode instanceof Element) {
-          let index = 1;
-          let sibling = current.previousElementSibling;
-          while (sibling) {
-            if (sibling.nodeName === current.nodeName) index++;
-            sibling = sibling.previousElementSibling;
-          }
-          
-          const tagName = current.nodeName.toLowerCase();
-          paths.unshift(`${tagName}[${index}]`);
-          current = current.parentNode;
-        }
-        
-        return '/' + paths.join('/');
-      }
+    const allElements: ElementInfo[] = [];
 
-      function getCssSelector(el: Element): string {
-        if (!(el instanceof Element)) return ''; // Should not happen if called correctly
-
-        const path: string[] = [];
-        let currentEl: Element | null = el;
-
-        while (currentEl instanceof Element) {
-            let selector = currentEl.nodeName.toLowerCase();
-            if (currentEl.id) {
-                selector = '#' + currentEl.id; // More specific if ID is present
-                path.unshift(selector);
-                break; // ID is unique enough for the path from this point
-            } else {
-                const parent: HTMLElement | null = currentEl.parentElement;
-                if (parent) {
-                    let count = 0;
-                    let sibling: Element | null = parent.firstElementChild;
-                    while (sibling) {
-                        if (sibling.nodeName === currentEl.nodeName) {
-                            count++;
-                            if (sibling === currentEl) {
-                                selector += `:nth-of-type(${count})`;
-                                break;
-                            }
-                        }
-                        sibling = sibling.nextElementSibling;
-                    }
+    // Helper function to scan a given frame
+    const scanFrameAndItsChildren = async (currentFrame: import('playwright').Frame, frameSelectorPath: string) => {
+        // The actual element scanning logic, to be run in the frame's context
+        // Ensure ElementInfo here matches the one outside, or Omit the frameSelector for now.
+        const elementsInFrame = await currentFrame.evaluate((currentFrameSelectorPath) => {
+            function getXPath(element: Element): string {
+              if (element.id) return `//*[@id="${element.id}"]`;
+              const paths: string[] = [];
+              let current = element;
+              while (current.parentNode instanceof Element) {
+                let index = 1;
+                let sibling = current.previousElementSibling;
+                while (sibling) {
+                  if (sibling.nodeName === current.nodeName) index++;
+                  sibling = sibling.previousElementSibling;
                 }
+                const tagName = current.nodeName.toLowerCase();
+                paths.unshift(`${tagName}[${index}]`);
+                current = current.parentNode;
+              }
+              return '/' + paths.join('/');
             }
-            path.unshift(selector);
-            currentEl = currentEl.parentElement;
-        }
-        return path.join(' > ');
-      }
 
-      const elements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
-      return Array.from(elements).map(el => {
-        const rect = el.getBoundingClientRect();
-        const attributes: Record<string, string> = {};
-        Array.from(el.attributes).forEach(attr => {
-          attributes[attr.name] = attr.value;
+            function getCssSelector(el: Element): string {
+              if (!(el instanceof Element)) return '';
+              const path: string[] = [];
+              let currentEl: Element | null = el;
+              while (currentEl instanceof Element) {
+                  let selector = currentEl.nodeName.toLowerCase();
+                  if (currentEl.id) {
+                      selector = '#' + currentEl.id;
+                      path.unshift(selector);
+                      break;
+                  } else {
+                      const parent: HTMLElement | null = currentEl.parentElement;
+                      if (parent) {
+                          let count = 0;
+                          let sibling: Element | null = parent.firstElementChild;
+                          while (sibling) {
+                              if (sibling.nodeName === currentEl.nodeName) {
+                                  count++;
+                                  if (sibling === currentEl) {
+                                      selector += `:nth-of-type(${count})`;
+                                      break;
+                                  }
+                              }
+                              sibling = sibling.nextElementSibling;
+                          }
+                      }
+                  }
+                  path.unshift(selector);
+                  currentEl = currentEl.parentElement;
+              }
+              return path.join(' > ');
+            }
+
+            const rawElements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
+            console.log(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Initial elements found by querySelectorAll:`, rawElements.length);
+
+            const processedElements = Array.from(rawElements).map(el => {
+                try {
+                    const rect = el.getBoundingClientRect();
+                    const attributes: Record<string, string> = {};
+                    Array.from(el.attributes).forEach(attr => {
+                        attributes[attr.name] = attr.value;
+                    });
+
+                    let xpath = '';
+                    try {
+                        xpath = getXPath(el);
+                    } catch (e: any) {
+                        console.warn(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Error XPath:`, el.outerHTML, e.message);
+                    }
+
+                    let selector = '';
+                    try {
+                        selector = getCssSelector(el);
+                    } catch (e: any) {
+                        console.warn(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Error CSS:`, el.outerHTML, e.message);
+                    }
+
+                    return { // This is Omit<ElementInfo, 'frameSelector' | 'classes'> effectively + classes
+                        tag: el.tagName.toLowerCase(),
+                        id: el.id || undefined,
+                        classes: Array.from(el.classList),
+                        text: el.textContent?.trim() || undefined,
+                        attributes,
+                        xpath,
+                        selector,
+                        boundingBox: {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        }
+                    };
+                } catch (error: any) {
+                    console.warn(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] General error processing element:`, el ? el.outerHTML : 'Element undefined', error.message, error.stack);
+                    return null;
+                }
+            });
+            // Make sure the return type matches what's expected by `elementsInFrame`
+            const finalElements = processedElements.filter(el => el !== null) as Array<Omit<ElementInfo, 'frameSelector'>>;
+            console.log(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Elements processed:`, finalElements.length);
+            return finalElements;
+        }, frameSelectorPath); // Pass frameSelectorPath to evaluate
+
+        // Add frameSelector to elements found in this frame and add to global list
+        elementsInFrame.forEach(el => {
+            allElements.push({ ...el, frameSelector: frameSelectorPath || undefined });
         });
 
-        return {
-          tag: el.tagName.toLowerCase(),
-          id: el.id || undefined,
-          classes: Array.from(el.classList),
-          text: el.textContent?.trim() || undefined,
-          attributes,
-          xpath: getXPath(el),
-          selector: getCssSelector(el),
-          boundingBox: {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height
-          }
-        };
-      });
-    });
+        // Recursively scan child frames
+        for (const childFrame of currentFrame.childFrames()) {
+            let childFrameSelectorSegment = `iframe[name='${childFrame.name()}']`; // Default
+            try {
+                const iframeElementHandle = await childFrame.frameElement();
+                if (iframeElementHandle) {
+                    const id = await iframeElementHandle.getAttribute('id');
+                    if (id) {
+                        childFrameSelectorSegment = `iframe#${id}`;
+                    } else {
+                        const nameAttr = await iframeElementHandle.getAttribute('name');
+                        if (nameAttr) {
+                             childFrameSelectorSegment = `iframe[name='${nameAttr}']`;
+                        } else {
+                            // Fallback: could use order, or a more complex XPath/CSS to identify the iframe
+                            // For now, we'll rely on name() if no ID/name attribute.
+                            console.warn(`[PlaywrightService] Iframe without ID or name attribute found. Using name from frame object: ${childFrame.name()}`);
+                        }
+                    }
+                    await iframeElementHandle.dispose();
+                }
+            } catch(e: any) {
+                 console.warn(`[PlaywrightService] Error getting iframe element handle or attributes for child frame of ${frameSelectorPath || 'main frame'}. Using name(): ${childFrame.name()}. Error: ${e.message}`);
+            }
+
+            const nextFrameSelectorPath = frameSelectorPath ? `${frameSelectorPath} >>> ${childFrameSelectorSegment}` : childFrameSelectorSegment;
+            await scanFrameAndItsChildren(childFrame, nextFrameSelectorPath);
+        }
+    };
+
+    // Start scanning from the main frame
+    await scanFrameAndItsChildren(session.page.mainFrame(), '');
+
+    console.log('[PlaywrightService] Total elements found across all frames:', allElements.length);
+    return allElements;
   }
 
   async getElementScreenshot(sessionId: string, selector: string): Promise<string> {
