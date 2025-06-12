@@ -95,7 +95,7 @@ export const apiService = {
     return data.elements;
   },
 
-  async detectElementsByPlaywright(url: string): Promise<any[]> { // Using any[] for now, will be ElementInfo[]
+  async detectElementsByPlaywright(url: string): Promise<{ sessionId: string; url: string; title: string; isNewSession: boolean; elements: any[] }> {
     const response = await fetch(`${API_BASE_URL}/playwright/detect-elements`, {
       method: 'POST',
       headers: getHeaders(),
@@ -107,7 +107,7 @@ export const apiService = {
       throw new Error(`Failed to detect elements by Playwright: ${response.status} ${response.statusText}`);
     }
     const data = await response.json();
-    return data.elements; // Assuming the backend returns { elements: ElementInfo[] }
+    return data; // Returns the full data object now
   },
 
   async getElementScreenshot(sessionId: string, selector: string): Promise<string> {

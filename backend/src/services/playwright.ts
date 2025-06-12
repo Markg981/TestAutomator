@@ -35,19 +35,41 @@ class PlaywrightService {
     const now = Date.now();
     for (const [sessionId, session] of this.sessions.entries()) {
       if (now - session.lastActivity > this.SESSION_TIMEOUT) {
+        console.log(`Closing inactive session: ${sessionId}`);
         await this.closeSession(sessionId);
       }
     }
   }
 
-  async createSession(url: string): Promise<{ sessionId: string; screenshot: string; title: string }> {
+  async getOrCreatePageForUrl(url: string): Promise<{ sessionId: string, page: Page, browser: Browser, actualUrl: string, title: string, isNewSession: boolean }> {
+    // Attempt to find an existing session for the URL (or base URL)
+    for (const [sessionId, session] of this.sessions.entries()) {
+      // A more sophisticated URL matching might be needed, e.g., comparing without query params or hash
+      if (session.page.url().startsWith(url)) { // Simple check: startsWith
+        console.log(`Reusing existing session ${sessionId} for URL: ${url}`);
+        session.lastActivity = Date.now();
+        return {
+          sessionId,
+          page: session.page,
+          browser: session.browser,
+          actualUrl: session.page.url(),
+          title: await session.page.title(),
+          isNewSession: false,
+        };
+      }
+    }
+
+    // If no suitable session found, create a new one
+    console.log(`Creating new session for URL: ${url}`);
     const browser = await chromium.launch();
     const page = await browser.newPage();
-    
+    let actualUrl = '';
+    let title = '';
+
     try {
       await page.goto(url, { waitUntil: 'networkidle' });
-      const screenshot = await page.screenshot({ fullPage: true });
-      const title = await page.title();
+      actualUrl = page.url();
+      title = await page.title();
       
       const sessionId = Date.now().toString();
       this.sessions.set(sessionId, {
@@ -58,13 +80,41 @@ class PlaywrightService {
 
       return {
         sessionId,
-        screenshot: screenshot.toString('base64'),
-        title
+        page,
+        browser,
+        actualUrl,
+        title,
+        isNewSession: true,
       };
     } catch (error) {
-      await browser.close();
+      await browser.close(); // Ensure browser is closed on error during creation
       throw error;
     }
+  }
+
+  // createSession can be refactored or removed if getOrCreatePageForUrl covers all needs.
+  // For now, let's keep it and make it use getOrCreatePageForUrl to ensure consistency.
+  async createSession(url: string): Promise<{ sessionId: string; screenshot: string; title: string, actualUrl: string }> {
+    const { sessionId, page, actualUrl, title, isNewSession } = await this.getOrCreatePageForUrl(url);
+
+    // If it's a new session, a screenshot might be relevant.
+    // If an existing session, the "screenshot" might be stale or less relevant.
+    // This behavior can be adjusted based on requirements.
+    let screenshot = "";
+    if (isNewSession) {
+        const screenshotBuffer = await page.screenshot({ fullPage: true });
+        screenshot = screenshotBuffer.toString('base64');
+    } else {
+        console.log(`Session ${sessionId} for ${url} already existed. Screenshot not taken.`);
+    }
+
+
+    return {
+      sessionId,
+      screenshot, // This might be empty if the session was reused
+      title,
+      actualUrl
+    };
   }
 
   async closeSession(sessionId: string): Promise<void> {
@@ -104,27 +154,26 @@ class PlaywrightService {
         return '/' + paths.join('/');
       }
 
-      function getCssSelector(element: Element): string {
-        if (element.id) return `#${element.id}`;
-        
-        const paths: string[] = [];
-        let current = element;
-        
-        while (current.parentNode instanceof Element) {
-          let selector = current.tagName.toLowerCase();
-          
-          if (current.id) {
-            paths.unshift(`#${current.id}`);
-            break;
-          } else if (current.classList.length > 0) {
-            selector += `.${Array.from(current.classList).join('.')}`;
-          }
-          
-          paths.unshift(selector);
-          current = current.parentNode;
+      function getCssSelector(el: Element): string {
+        if (!(el instanceof Element)) return '';
+        const path = [];
+        while (el.nodeType === Node.ELEMENT_NODE) {
+            let selector = el.nodeName.toLowerCase();
+            if (el.id) {
+                selector += '#' + el.id;
+                path.unshift(selector);
+                break; // ID is unique enough
+            } else {
+                let sib = el, nth = 1;
+                while (sib = sib.previousElementSibling) {
+                    if (sib.nodeName.toLowerCase() == selector) nth++;
+                }
+                if (nth != 1) selector += ":nth-of-type("+nth+")";
+            }
+            path.unshift(selector);
+            el = el.parentNode as Element;
         }
-        
-        return paths.join(' > ');
+        return path.join(" > ");
       }
 
       const elements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');

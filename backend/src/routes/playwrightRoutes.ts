@@ -101,31 +101,34 @@ router.post('/detect-elements', async (req, res) => {
     return res.status(400).json({ error: 'URL is required to detect elements.' });
   }
 
-  let sessionId: string | null = null;
   try {
-    const sessionDetails = await playwrightService.createSession(url);
-    sessionId = sessionDetails.sessionId;
+    // Use getOrCreatePageForUrl to get a page, either new or existing
+    const { sessionId, page, actualUrl, title, isNewSession } = await playwrightService.getOrCreatePageForUrl(url);
+
+    console.log(`[PlaywrightRoutes] /detect-elements: Using session ${sessionId} for URL ${url}. New session: ${isNewSession}. Actual URL: ${actualUrl}, Title: ${title}`);
 
     const elements = await playwrightService.scanElements(sessionId);
-    res.status(200).json({ elements });
+
+    // Respond with elements and sessionId
+    res.status(200).json({
+      sessionId,
+      elements,
+      url: actualUrl,
+      title,
+      isNewSession
+    });
+
   } catch (error: any) {
     console.error(`[PlaywrightRoutes] Error during element detection for URL ${url}:`, error);
     // Determine status code based on error type if possible, otherwise default to 500
-    const statusCode = error.message?.includes('Session not found') ? 404 : // Should not happen if session was just created
-                       error.message?.includes('Failed to create Playwright session') ? 500 :
+    const statusCode = error.message?.includes('Session not found') ? 404 : // Should be less likely now
+                       error.message?.includes('Failed to create Playwright session') ? 500 : // Error from getOrCreatePageForUrl
                        error.message?.includes('Failed to scan elements') ? 500 :
-                       500;
+                       500; // Default for other errors
     res.status(statusCode).json({ error: 'Failed to detect elements', details: error.message });
-  } finally {
-    if (sessionId) {
-      try {
-        await playwrightService.closeSession(sessionId);
-      } catch (closeError: any) {
-        console.error(`[PlaywrightRoutes] Error closing session ${sessionId} during element detection cleanup:`, closeError);
-        // Optionally, log this error but the primary error response to the client would have already been sent.
-      }
-    }
   }
+  // The finally block for closing the session is removed.
+  // Session lifecycle is managed by PlaywrightService's inactivity timer.
 });
 
 export default router;

@@ -23,45 +23,57 @@ const iframeHighlightingScript = `
     let lastHighlightedElement = null;
     let originalOutline = '';
 
+    console.log('IFRAME_HIGHLIGHT_SCRIPT: Initialized.');
+
     window.addEventListener('message', function(event) {
         const data = event.data;
+        console.log('IFRAME_HIGHLIGHT_SCRIPT: Message received:', data);
 
         if (data && data.type === 'HIGHLIGHT_ELEMENT' && data.selector) {
+            console.log('IFRAME_HIGHLIGHT_SCRIPT: Received HIGHLIGHT_ELEMENT for selector:', data.selector);
             if (lastHighlightedElement) {
                 try {
+                    console.log('IFRAME_HIGHLIGHT_SCRIPT: Removing previous highlight from:', lastHighlightedElement);
                     lastHighlightedElement.style.outline = originalOutline;
                 } catch(e) {
-                    console.warn('Highlighter: Error removing previous outline - ', e);
+                    console.warn('IFRAME_HIGHLIGHT_SCRIPT: Error removing previous outline - ', e);
                 }
             }
 
             try {
                 const elementToHighlight = document.querySelector(data.selector);
                 if (elementToHighlight) {
+                    console.log('IFRAME_HIGHLIGHT_SCRIPT: Element found:', elementToHighlight);
                     lastHighlightedElement = elementToHighlight;
                     originalOutline = elementToHighlight.style.outline || '';
                     elementToHighlight.style.outline = '2px solid red';
+                    console.log('IFRAME_HIGHLIGHT_SCRIPT: Highlight applied to:', elementToHighlight);
                     // elementToHighlight.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
                 } else {
-                    console.warn('Highlighter: Element not found for selector:', data.selector);
+                    console.warn('IFRAME_HIGHLIGHT_SCRIPT: Element NOT found for selector:', data.selector);
                     lastHighlightedElement = null;
                     originalOutline = '';
                 }
             } catch(e) {
-                console.error('Highlighter: Error querying or applying highlight for selector "' + data.selector + '" - ', e);
+                console.error('IFRAME_HIGHLIGHT_SCRIPT: Error querying or applying highlight for selector "' + data.selector + '" - ', e);
                 lastHighlightedElement = null;
                 originalOutline = '';
             }
         } else if (data && data.type === 'REMOVE_HIGHLIGHT') {
+            console.log('IFRAME_HIGHLIGHT_SCRIPT: Received REMOVE_HIGHLIGHT.');
             if (lastHighlightedElement) {
                 try {
+                    console.log('IFRAME_HIGHLIGHT_SCRIPT: Removing highlight from:', lastHighlightedElement);
                     lastHighlightedElement.style.outline = originalOutline;
                 } catch(e) {
-                    console.warn('Highlighter: Error removing outline - ', e);
+                    console.warn('IFRAME_HIGHLIGHT_SCRIPT: Error removing outline - ', e);
                 } finally {
                     lastHighlightedElement = null;
                     originalOutline = '';
+                    console.log('IFRAME_HIGHLIGHT_SCRIPT: Highlight removed.');
                 }
+            } else {
+                console.log('IFRAME_HIGHLIGHT_SCRIPT: No element was highlighted, nothing to remove.');
             }
         }
     });
@@ -616,6 +628,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   const [highlightedElementSelector, setHighlightedElementSelector] = useState<string | null>(null);
   const [highlightOverlayRect, setHighlightOverlayRect] = useState<{ top: number; left: number; width: number; height: number; } | null>(null);
   const [isLoadingSavedTests, setIsLoadingSavedTests] = useState<boolean>(false);
+  const [currentPlaywrightSessionId, setCurrentPlaywrightSessionId] = useState<string | null>(null);
 
 
   const log = useCallback((messageKey: string, params?: Record<string, string | number | undefined>, type: 'info' | 'error' | 'warning' | 'success' = 'info') => {
@@ -638,6 +651,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     setIsLoadingPage(true);
     setIsPagePreviewVisible(false); 
     setElementDetectionError(null);
+    setCurrentPlaywrightSessionId(null); // Reset session ID when a new URL is manually loaded
     log('createTestPage.logs.loadingUrl', { url: trimmedUrl });
 
     let srcToLoad: string;
@@ -667,16 +681,27 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         }
     }, 100); 
 
-  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError]);
+  }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, setCurrentPlaywrightSessionId]);
 
   const handleIframeLoadOrError = useCallback(() => {
+    // This function is called on both 'load' and 'error' events of the iframe.
     setIsLoadingPage(false);
-    console.log(`[DEBUG] iframe load/error event. isLoadingPage set to false. iframeSrc: ${iframeSrc}`);
-    if (iframeSrc && !iframeSrc.startsWith('data:')) { // Simplified condition
-      const displayedUrl = (iframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled) 
-        ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length)) 
-        : iframeSrc;
-      log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
+    console.log(`[DEBUG] iframe event (load/error). isLoadingPage set to false. iframeSrc: ${iframeSrc}`);
+
+    // It might be useful to distinguish between load and error here if specific error logging is needed.
+    // For now, simply setting isLoadingPage to false is the primary goal.
+    if (iframeSrc && !iframeSrc.startsWith('data:')) {
+        const displayedUrl = (iframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled)
+            ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length))
+            : iframeSrc;
+        // Check if the iframe has content. If not, it might be an error.
+        const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement;
+        if (iframe && (!iframe.contentDocument || iframe.contentDocument.body.innerHTML === "")) {
+            log('createTestPage.logs.externalPageErrorLoad', { url: displayedUrl }, 'error');
+            // Potentially set an error state or provide more specific feedback to the user.
+        } else {
+            log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
+        }
     }
   }, [iframeSrc, log, setIsLoadingPage, isProxyEnabled]);
 
@@ -689,8 +714,6 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
       return;
     }
     if (!isPagePreviewVisible || !iframeSrc) {
-      // const messageKey = isInternalTestPageLoaded ? 'createTestPage.alerts.internalPageNotReadyForDetect' : 'createTestPage.alerts.loadPageFirstForDetect';
-      // For simplicity, using a generic message, or decide if a more specific one is needed if iframeSrc is a data URL (screenshot)
       const messageKey = 'createTestPage.alerts.loadPageFirstForDetect';
       alert(t(messageKey));
       log(messageKey, undefined, 'warning');
@@ -698,120 +721,46 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     }
     
     setIsDetectingElements(true);
-    const sourceName = iframeSrc; // Simplified source name
+    setElementDetectionError(null);
+    const sourceName = iframeSrc;
     log('createTestPage.logs.detectingElementsFrom', { source: sourceName });
     console.log(`[DEBUG] Starting element detection from: ${sourceName}`);
     setDetectedElements([]);
 
     try {
       if (iframeSrc && iframeSrc.startsWith('data:')) {
-        // This path is now primarily for screenshots or other non-interactive data URLs.
-        // Element detection on these might be limited or not intended.
-        // For now, keeping the existing logic but noting it might need review.
-        setTimeout(() => {
-          const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
-          console.log("[DEBUG] [DetectElements Timeout] iframe element (data URL):", iframe);
-          if (!iframe) {
-            log('createTestPage.logs.errorIframeNotFound', undefined, 'error');
-            console.error("[DEBUG] [DetectElements Timeout] Iframe not found (data URL).");
-            setIsDetectingElements(false);
-            return;
-          }
-
-          try {
-            const iframeDocument = iframe.contentDocument || iframe.contentWindow?.document;
-            console.log("[DEBUG] [DetectElements Timeout] iframeDocument (data URL):", iframeDocument);
-
-            if (!iframeDocument) {
-              log('createTestPage.logs.errorAccessingIframeDom', { source: sourceName }, 'error');
-              console.error(`[DEBUG] [DetectElements Timeout] Cannot access iframe DOM from (data URL): ${sourceName}`);
-              setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
-              setIsDetectingElements(false);
-              return;
-            }
-            log('createTestPage.logs.iframeAccessSuccessScanning', { source: sourceName });
-            const foundHtmlElements = iframeDocument.querySelectorAll('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
-            console.log("[DEBUG] [DetectElements Timeout] foundHtmlElements length (data URL):", foundHtmlElements.length);
-            
-            const newDetectedElements: DetectedElement[] = [];
-            const tempSelectors = new Set<string>();
-
-            foundHtmlElements.forEach((htmlEl, index) => {
-              const element = htmlEl as HTMLElement;
-              const tagName = element.tagName.toUpperCase();
-              if (['SCRIPT', 'STYLE', 'META', 'LINK', 'HEAD', 'TITLE'].includes(tagName)) return;
-              const name = getElementUserFriendlyName(element, tagName);
-              const selector = getElementCssSelector(element);
-              let elId = `el_${selector.replace(/[^a-zA-Z0-9_]/g, '_').substring(0,50)}_${index}`;
-              if (tempSelectors.has(elId)) elId = `${elId}_${Math.random().toString(36).substring(2, 5)}`;
-              tempSelectors.add(elId);
-              const attributes: Record<string, string> = {};
-              if (element.id) attributes.id = element.id;
-              if (element.className && typeof element.className === 'string') attributes.class = element.className;
-              if (element.getAttribute('data-testid')) attributes['data-testid'] = element.getAttribute('data-testid')!;
-              if (element.getAttribute('role')) attributes.role = element.getAttribute('role')!;
-              if (element.getAttribute('name')) attributes.name = element.getAttribute('name')!;
-              if (element.getAttribute('type')) attributes.type = element.getAttribute('type')!;
-              if (element.getAttribute('value')) attributes.value = element.getAttribute('value')!;
-              if (element.getAttribute('placeholder')) attributes.placeholder = element.getAttribute('placeholder')!;
-              if (element.getAttribute('href')) attributes.href = element.getAttribute('href')!;
-              if (element.getAttribute('src')) attributes.src = element.getAttribute('src')!;
-              if (element.getAttribute('alt')) attributes.alt = element.getAttribute('alt')!;
-              if (element.getAttribute('title')) attributes.title = element.getAttribute('title')!;
-              if (element.getAttribute('aria-label')) attributes['aria-label'] = element.getAttribute('aria-label')!;
-              
-              newDetectedElements.push({
-                id: elId,
-                name,
-                tagName,
-                selector,
-                attributes,
-                text: element.textContent || undefined
-              });
-            });
-
-            if (newDetectedElements.length > 0) {
-              setDetectedElements(newDetectedElements);
-              log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
-              console.log(`[DEBUG] [DetectElements Timeout] Detected ${newDetectedElements.length} elements (data URL).`);
-            } else {
-              log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-              console.warn(`[DEBUG] [DetectElements Timeout] No interactive elements found for (data URL) ${sourceName}.`);
-            }
-          } catch (error) {
-            console.error("[DEBUG] [DetectElements Timeout] Error during iframe DOM access or element processing (data URL):", error);
-            log('createTestPage.logs.errorAccessingIframeDomUnexpected', { source: sourceName, error: String(error) }, 'error');
-            setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedGeneralHelp'));
-            setDetectedElements([]);
-          } finally {
-            setIsDetectingElements(false);
-            console.log("[DEBUG] [DetectElements Timeout] Detection process finished (data URL).");
-          }
-        }, 500);
+        // This path is for screenshots/non-interactive. Element detection is not expected.
+        log('createTestPage.logs.elementDetectionSkippedForDataUrl', { source: sourceName }, 'warning');
+        setElementDetectionError(t('createTestPage.elementsPanel.detectionNotApplicableDataUrl'));
+        setDetectedElements([]);
       } else {
-        // For external pages or non-data URLs (e.g. http, file), use the Playwright backend service
-        log('createTestPage.logs.detectingElementsWithPlaywright', { url: iframeSrc || url }, 'info'); // Use iframeSrc if available, else fallback to url
-        console.log(`[DEBUG] Detecting elements for external URL: ${iframeSrc || url} using Playwright backend service.`);
-        const backendElements = await apiService.detectElementsByPlaywright(iframeSrc || url); // ElementInfo[]
+        // For external pages (http, https, file), use the Playwright backend service
+        const currentUrlToDetect = iframeSrc || url; // Prefer iframeSrc as it's what's loaded
+        log('createTestPage.logs.detectingElementsWithPlaywright', { url: currentUrlToDetect }, 'info');
+        console.log(`[DEBUG] Detecting elements for URL: ${currentUrlToDetect} using Playwright backend service.`);
+
+        // Call the updated apiService function
+        const { sessionId, url: actualUrl, title, isNewSession, elements: backendElements } = await apiService.detectElementsByPlaywright(currentUrlToDetect);
+
+        setCurrentPlaywrightSessionId(sessionId);
+        setUrl(actualUrl); // Update the main URL state with the actual URL from backend (handles redirects)
+        // Potentially update page title in UI if displayed
+
+        log('createTestPage.logs.playwrightSessionInfo', { sessionId, actualUrl, isNew: isNewSession.toString(), pageTitle: title});
 
         const newDetectedElements: DetectedElement[] = backendElements.map((el: any, index: number) => {
-          // el is ElementInfo: { tag, id?, classes?, text?, attributes, xpath, selector, boundingBox? }
           const tagName = el.tag?.toUpperCase() || 'UNKNOWN';
-          
-          // Simplified name generation. Can be enhanced later.
           let name = el.text?.trim().substring(0, 70);
           if (!name) name = el.attributes?.name || el.attributes?.id || el.attributes?.['aria-label'];
           if (!name) name = `${tagName} (${el.selector?.substring(0, 40)}...)`;
           if (!name) name = `${tagName} #${index}`;
-
-
           const feId = `el_pw_${el.selector?.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0,40)}_${index}`;
           
           return {
             id: feId,
             name: name,
             tagName: tagName,
-            selector: el.selector || '', // CSS selector from Playwright
+            selector: el.selector || '',
             attributes: el.attributes || {},
             text: el.text?.trim() || undefined,
             boundingBox: el.boundingBox,
@@ -820,31 +769,30 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
         setDetectedElements(newDetectedElements);
         if (newDetectedElements.length > 0) {
-          log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: sourceName });
-          console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via Playwright backend API for ${iframeSrc || url}.`);
+          log('createTestPage.logs.detectedElementsCount', { count: newDetectedElements.length, sourceDetails: actualUrl });
+          console.log(`[DEBUG] Detected ${newDetectedElements.length} elements via Playwright for ${actualUrl}.`);
         } else {
-          log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: sourceName }, 'warning');
-          console.warn(`[DEBUG] No interactive elements found via Playwright backend API for ${iframeSrc || url}.`);
+          log('createTestPage.logs.noInteractiveElementsFound', { sourceDetails: actualUrl }, 'warning');
+          console.warn(`[DEBUG] No interactive elements found via Playwright for ${actualUrl}.`);
         }
       }
     } catch (error) {
-      console.error("[DEBUG] Error during element detection (data URL or Playwright backend):", error);
+      console.error("[DEBUG] Error during Playwright element detection:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       log('createTestPage.logs.errorDuringElementDetection', { source: sourceName, error: errorMessage }, 'error');
       setElementDetectionError(t('createTestPage.elementsPanel.detectionFailedSpecific', { error: errorMessage }));
       setDetectedElements([]);
+      setCurrentPlaywrightSessionId(null); // Clear session ID on error
     } finally {
       setIsDetectingElements(false);
       console.log("[DEBUG] Element detection process finished.");
     }
-  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, setElementDetectionError, isLoadingPage, url]);
+  }, [isPagePreviewVisible, iframeSrc, setIsDetectingElements, log, t, setDetectedElements, setElementDetectionError, isLoadingPage, url, setUrl, setCurrentPlaywrightSessionId]);
 
   const handleRunTest = useCallback(async () => {
-    // TODO: Get currentPlaywrightSessionId from state once session management for Playwright is added
-    const currentPlaywrightSessionId = "mock-session-id"; // Placeholder - replace with actual session ID
-
     if (!currentPlaywrightSessionId) {
-      log('Cannot run test: No active Playwright session.', undefined, 'error');
+      log('createTestPage.logs.errorNoPlaywrightSession', undefined, 'error');
+      alert(t('createTestPage.alerts.noPlaywrightSession'));
       alert('Cannot run test: No active Playwright session. Please load a page first using a Playwright-enabled method.');
       setIsRunningTest(false);
       return;
@@ -1044,7 +992,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     log("createTestPage.logs.testExecutionCompleted", undefined, 'info');
     setIsRunningTest(false);
     setCurrentExecutingStepId(null);
-  }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isProxyEnabled, setElementDetectionError]);
+  }, [testSteps, detectedElements, setIsRunningTest, log, t, iframeSrc, setIframeSrc, url, setUrl, handleDetectElements, isProxyEnabled, setElementDetectionError, currentPlaywrightSessionId]);
 
   const handleSaveTestLocal = useCallback(async () => {
     if (testSteps.length === 0) {
@@ -1270,42 +1218,54 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   };
 
   const handleElementMouseEnter = (element: DetectedElement) => {
-    setHighlightedElementSelector(element.selector); // Keep this for potential debugging/display
-    applyHighlight(element.selector); // Tell iframe to highlight its internal element
+    setHighlightedElementSelector(element.selector);
+    applyHighlight(element.selector);
 
+    console.log('[DEBUG] handleElementMouseEnter: Element:', element);
     if (!element.boundingBox) {
       setHighlightOverlayRect(null);
-      console.warn('[DEBUG] MouseEnter: Element has no boundingBox. Cannot display overlay.', element);
+      console.warn('[DEBUG] handleElementMouseEnter: Element has no boundingBox. Cannot display overlay.', JSON.stringify(element));
       return;
     }
+
     const { x, y, width, height } = element.boundingBox;
-    if (width === 0 || height === 0) {
+    console.log('[DEBUG] handleElementMouseEnter: BoundingBox:', { x, y, width, height });
+
+    if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number') {
+      setHighlightOverlayRect(null);
+      console.warn('[DEBUG] handleElementMouseEnter: BoundingBox properties are not numbers.', JSON.stringify(element.boundingBox));
+      return;
+    }
+
+    if (width <= 0 || height <= 0) {
         setHighlightOverlayRect(null);
-        console.warn('[DEBUG] MouseEnter: Element boundingBox has zero width or height.', element);
+        console.warn('[DEBUG] handleElementMouseEnter: Element boundingBox has zero or negative width/height.', JSON.stringify(element.boundingBox));
         return;
     }
 
     const iframeElement = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
     if (!iframeElement) {
       setHighlightOverlayRect(null);
-      console.warn('[DEBUG] MouseEnter: Iframe element not found.');
+      console.warn('[DEBUG] handleElementMouseEnter: Iframe element not found (IFRAME_PREVIEW_ID).');
       return;
     }
 
     const iframeRect = iframeElement.getBoundingClientRect();
-    // The overlay's parent is the div with 'relative' class.
-    // We need to find this container to correctly offset the overlay.
-    const overlayContainer = iframeElement.closest('.relative') as HTMLElement | null;
+    console.log('[DEBUG] handleElementMouseEnter: IframeRect:', iframeRect);
 
+    const overlayContainer = iframeElement.closest('.relative') as HTMLElement | null;
     if (!overlayContainer) {
         setHighlightOverlayRect(null);
-        console.warn('[DEBUG] MouseEnter: Overlay container with ".relative" class not found.');
+        console.warn('[DEBUG] handleElementMouseEnter: Overlay container with ".relative" class not found.');
         return;
     }
     const overlayContainerRect = overlayContainer.getBoundingClientRect();
+    console.log('[DEBUG] handleElementMouseEnter: OverlayContainerRect:', overlayContainerRect);
 
     const calculatedTop = iframeRect.top - overlayContainerRect.top + y;
     const calculatedLeft = iframeRect.left - overlayContainerRect.left + x;
+
+    console.log('[DEBUG] handleElementMouseEnter: Calculated Coords:', { calculatedTop, calculatedLeft, width, height });
 
     setHighlightOverlayRect({
       top: calculatedTop,
