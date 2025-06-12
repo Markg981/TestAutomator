@@ -167,7 +167,7 @@ class PlaywrightService {
                 path.unshift(selector);
                 break; // ID is unique enough for the path from this point
             } else {
-                const parent = currentEl.parentElement;
+                const parent: HTMLElement | null = currentEl.parentElement;
                 if (parent) {
                     let count = 0;
                     let sibling: Element | null = parent.firstElementChild;
