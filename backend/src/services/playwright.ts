@@ -97,8 +97,8 @@ class PlaywrightService {
   // For now, let's keep it and make it use getOrCreatePageForUrl to ensure consistency.
   async createSession(url: string): Promise<{ sessionId: string; screenshot: string; title: string, actualUrl: string }> {
     const { sessionId, page, actualUrl, title, isNewSession } = await this.getOrCreatePageForUrl(url);
-
-    // If it's a new session, a screenshot might be relevant.
+    
+    // If it's a new session, a screenshot might be relevant. 
     // If an existing session, the "screenshot" might be stale or less relevant.
     // This behavior can be adjusted based on requirements.
     let screenshot = "";
@@ -158,15 +158,15 @@ class PlaywrightService {
             }
 
             function getCssSelector(el: Element): string {
-              if (!(el instanceof Element)) return '';
+              if (!(el instanceof Element)) return ''; 
               const path: string[] = [];
               let currentEl: Element | null = el;
               while (currentEl instanceof Element) {
                   let selector = currentEl.nodeName.toLowerCase();
                   if (currentEl.id) {
-                      selector = '#' + currentEl.id;
+                      selector = '#' + currentEl.id; 
                       path.unshift(selector);
-                      break;
+                      break; 
                   } else {
                       const parent: HTMLElement | null = currentEl.parentElement;
                       if (parent) {
@@ -214,7 +214,7 @@ class PlaywrightService {
                     } catch (e: any) {
                         console.warn(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Error CSS:`, el.outerHTML, e.message);
                     }
-
+                    
                     return { // This is Omit<ElementInfo, 'frameSelector' | 'classes'> effectively + classes
                         tag: el.tagName.toLowerCase(),
                         id: el.id || undefined,
@@ -236,7 +236,7 @@ class PlaywrightService {
                 }
             });
             // Make sure the return type matches what's expected by `elementsInFrame`
-            const finalElements = processedElements.filter(el => el !== null) as Array<Omit<ElementInfo, 'frameSelector'>>;
+            const finalElements = processedElements.filter(el => el !== null) as Array<Omit<ElementInfo, 'frameSelector'>>; 
             console.log(`[Playwright Eval${currentFrameSelectorPath ? ` in ${currentFrameSelectorPath}` : ''}] Elements processed:`, finalElements.length);
             return finalElements;
         }, frameSelectorPath); // Pass frameSelectorPath to evaluate
@@ -270,7 +270,7 @@ class PlaywrightService {
             } catch(e: any) {
                  console.warn(`[PlaywrightService] Error getting iframe element handle or attributes for child frame of ${frameSelectorPath || 'main frame'}. Using name(): ${childFrame.name()}. Error: ${e.message}`);
             }
-
+            
             const nextFrameSelectorPath = frameSelectorPath ? `${frameSelectorPath} >>> ${childFrameSelectorSegment}` : childFrameSelectorSegment;
             await scanFrameAndItsChildren(childFrame, nextFrameSelectorPath);
         }

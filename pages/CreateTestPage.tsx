@@ -656,8 +656,16 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
     let srcToLoad: string;
     if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-      srcToLoad = trimmedUrl;
-      log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl });
+      if (isProxyEnabled) {
+        srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(trimmedUrl)}`;
+        log('createTestPage.logs.loadingViaProxy', { url: trimmedUrl });
+      } else {
+        srcToLoad = trimmedUrl;
+        log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl });
+        // Consider adding: setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
+        // For now, sticking to the subtask to only log if not proxying.
+        // The user can enable isProxyEnabled if direct loading causes issues.
+      }
     } else if (trimmedUrl.startsWith('file:///')) {
       srcToLoad = trimmedUrl;
       log('createTestPage.logs.loadingFileUrl', { url: trimmedUrl });
@@ -684,26 +692,60 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   }, [url, setIsLoadingPage, setIsPagePreviewVisible, setIframeSrc, log, t, setDetectedElements, setTestSteps, setCurrentTestName, currentTestId, setElementDetectionError, setCurrentPlaywrightSessionId]);
 
   const handleIframeLoadOrError = useCallback(() => {
-    // This function is called on both 'load' and 'error' events of the iframe.
     setIsLoadingPage(false);
-    console.log(`[DEBUG] iframe event (load/error). isLoadingPage set to false. iframeSrc: ${iframeSrc}`);
+    const currentIframeSrc = iframeSrc; // Capture iframeSrc at the time of event
+    console.log(`[DEBUG] iframe event (load/error). isLoadingPage set to false. iframe.src at event time: ${currentIframeSrc}`);
 
-    // It might be useful to distinguish between load and error here if specific error logging is needed.
-    // For now, simply setting isLoadingPage to false is the primary goal.
-    if (iframeSrc && !iframeSrc.startsWith('data:')) {
-        const displayedUrl = (iframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled)
-            ? decodeURIComponent(iframeSrc.substring(PROXY_PREFIX.length))
-            : iframeSrc;
-        // Check if the iframe has content. If not, it might be an error.
-        const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement;
-        if (iframe && (!iframe.contentDocument || iframe.contentDocument.body.innerHTML === "")) {
-            log('createTestPage.logs.externalPageErrorLoad', { url: displayedUrl }, 'error');
-            // Potentially set an error state or provide more specific feedback to the user.
+    if (currentIframeSrc && !currentIframeSrc.startsWith('data:') && currentIframeSrc !== 'about:blank') {
+        const displayedUrl = (currentIframeSrc.startsWith(PROXY_PREFIX) && isProxyEnabled)
+            ? decodeURIComponent(currentIframeSrc.substring(PROXY_PREFIX.length))
+            : currentIframeSrc;
+        
+        const iframe = document.getElementById(IFRAME_PREVIEW_ID) as HTMLIFrameElement | null;
+
+        if (iframe) {
+            // Try to access contentDocument. If it's null, it's often a cross-origin issue or a hard load failure.
+            let contentAccessible = false;
+            try {
+                if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+                    // Accessing body might still throw if a cross-origin error page was loaded.
+                    // We only consider it truly loaded if we can access the body.
+                    if (iframe.contentDocument.body) { // Check if body itself is accessible
+                         // If body is accessible and innerHTML is empty, it might be an actual empty page.
+                         // For now, let's assume an accessible (even if empty) body means the iframe itself "loaded" something.
+                         contentAccessible = true; 
+                         if (iframe.contentDocument.body.innerHTML === "") {
+                            console.warn(`[DEBUG] Iframe for ${displayedUrl} loaded with an empty body.`);
+                            // Decide if this is still an error or just a warning.
+                            // For now, let's not log externalPageErrorLoad for just an empty body if contentDocument was accessible.
+                         }
+                    } else {
+                         console.warn(`[DEBUG] Iframe for ${displayedUrl} contentDocument.body is null, though contentDocument exists.`);
+                    }
+                } else if (iframe.contentDocument) {
+                     console.warn(`[DEBUG] Iframe for ${displayedUrl} contentDocument not ready (readyState: ${iframe.contentDocument.readyState}).`);
+                } else {
+                    // contentDocument is null - strong indicator of load error (e.g. X-Frame-Options)
+                    console.warn(`[DEBUG] Iframe for ${displayedUrl} contentDocument is null.`);
+                }
+            } catch (e: any) {
+                // Error accessing contentDocument, likely cross-origin
+                console.warn(`[DEBUG] Error accessing iframe content for ${displayedUrl}:`, e.message);
+            }
+
+            if (!contentAccessible) {
+                log('createTestPage.logs.externalPageErrorLoad', { url: displayedUrl, reason: 'Iframe content not accessible or document not ready.' }, 'error');
+            } else {
+                log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
+            }
         } else {
-            log('createTestPage.logs.externalPageAttemptLoad', { url: displayedUrl });
+            console.warn(`[DEBUG] Iframe element with ID ${IFRAME_PREVIEW_ID} not found at time of load/error event.`);
+            // This case should ideally not happen if the iframe is part of the render.
         }
+    } else {
+        console.log(`[DEBUG] Iframe event for src: ${currentIframeSrc} - skipped logging externalPageErrorLoad (data:, about:blank, or null src).`);
     }
-  }, [iframeSrc, log, setIsLoadingPage, isProxyEnabled]);
+  }, [iframeSrc, log, setIsLoadingPage, isProxyEnabled, t]);
 
   const handleDetectElements = useCallback(async () => {
     console.log(`[DEBUG] handleDetectElements called. isPagePreviewVisible: ${isPagePreviewVisible}, iframeSrc: ${iframeSrc}, isLoadingPage: ${isLoadingPage}`);
@@ -722,7 +764,7 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     
     setIsDetectingElements(true);
     setElementDetectionError(null);
-    const sourceName = iframeSrc;
+    const sourceName = iframeSrc; 
     log('createTestPage.logs.detectingElementsFrom', { source: sourceName });
     console.log(`[DEBUG] Starting element detection from: ${sourceName}`);
     setDetectedElements([]);
@@ -738,12 +780,33 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         const currentUrlToDetect = iframeSrc || url; // Prefer iframeSrc as it's what's loaded
         log('createTestPage.logs.detectingElementsWithPlaywright', { url: currentUrlToDetect }, 'info');
         console.log(`[DEBUG] Detecting elements for URL: ${currentUrlToDetect} using Playwright backend service.`);
-
+        
         // Call the updated apiService function
         const { sessionId, url: actualUrl, title, isNewSession, elements: backendElements } = await apiService.detectElementsByPlaywright(currentUrlToDetect);
 
         setCurrentPlaywrightSessionId(sessionId);
         setUrl(actualUrl); // Update the main URL state with the actual URL from backend (handles redirects)
+
+        if (iframeSrc !== actualUrl) { 
+            log('createTestPage.logs.syncingIframeToActualUrl', { newUrl: actualUrl });
+            setIsLoadingPage(true);
+            
+            let finalIframeSrc = actualUrl;
+            if (actualUrl.startsWith('http://') || actualUrl.startsWith('https://')) {
+                if (isProxyEnabled) {
+                    finalIframeSrc = `${PROXY_PREFIX}${encodeURIComponent(actualUrl)}`;
+                    log('createTestPage.logs.proxyingActualUrlForIframe', { actualUrl });
+                } else {
+                    // If not using proxy, actualUrl is loaded directly.
+                    // Log if direct loading might have limitations for element detection consistency.
+                    log('createTestPage.logs.directLoadOfActualUrlForIframe', { actualUrl });
+                }
+            }
+            // File URLs or other schemes (if any from backend) are not proxied.
+            
+            setIframeSrc(finalIframeSrc);
+            setIsPagePreviewVisible(true); 
+        }
         // Potentially update page title in UI if displayed
 
         log('createTestPage.logs.playwrightSessionInfo', { sessionId, actualUrl, isNew: isNewSession.toString(), pageTitle: title});
@@ -1043,35 +1106,37 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
   const handleLoadSavedTestFromModal = useCallback((testToLoad: SavedTest) => {
     setElementDetectionError(null);
-    setUrl(testToLoad.url || ''); 
+    const targetUrl = testToLoad.url || '';
+    setUrl(targetUrl); 
     
     let srcToLoad: string | null = null;
-    if (testToLoad.url && (testToLoad.url.startsWith('http://') || testToLoad.url.startsWith('https://'))) {
+    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
         if (isProxyEnabled) {
-            srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(testToLoad.url)}`;
+            srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(targetUrl)}`;
+            log('createTestPage.logs.loadingSavedTestViaProxy', { url: targetUrl });
         } else {
-            srcToLoad = testToLoad.url;
+            srcToLoad = targetUrl;
+            log('createTestPage.logs.loadingSavedTestDirectly', { url: targetUrl });
             setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
         }
-    } else if (testToLoad.url && testToLoad.url.startsWith('file:///')) {
-        srcToLoad = testToLoad.url;
+    } else if (targetUrl.startsWith('file:///')) {
+        srcToLoad = targetUrl;
+        log('createTestPage.logs.loadingSavedTestFileUrl', { url: targetUrl });
         setElementDetectionError(t('createTestPage.elementsPanel.fileUrlLimitations'));
-    } else if (testToLoad.url === "internal://test-page") {
-        // Handle loading of a legacy "internal://test-page" URL
+    } else if (targetUrl === "internal://test-page") {
         log('createTestPage.logs.legacyInternalTestPageLoadAttempt', { name: testToLoad.name }, 'warning');
         alert(t('createTestPage.alerts.internalPageRemovedLoad', { testName: testToLoad.name }));
-        // Optionally, clear the URL or set to a default, or allow user to update
-        setUrl(''); // Clear the URL as it's no longer valid
-        srcToLoad = null; // Do not attempt to load it
+        setUrl(''); 
+        srcToLoad = null; 
         setElementDetectionError(t('createTestPage.alerts.internalPageRemoved'));
-    } else if (testToLoad.url) { // Other non-empty URLs
-        srcToLoad = testToLoad.url;
-         log('createTestPage.logs.unknownUrlTypeLoad', { url: testToLoad.url }, 'warning');
+    } else if (targetUrl) { 
+        srcToLoad = targetUrl; // For any other non-empty, non-http/file URLs
+         log('createTestPage.logs.unknownUrlTypeLoad', { url: targetUrl }, 'warning');
     }
-
+    // If srcToLoad remains null (e.g. empty testToLoad.url or internal test page), iframe will be blank.
 
     setIframeSrc(srcToLoad);
-    setIsPagePreviewVisible(!!srcToLoad);
+    setIsPagePreviewVisible(!!srcToLoad); // Show iframe if srcToLoad is not null/empty
     
     setTestSteps(testToLoad.steps);
     setCurrentTestName(testToLoad.name);
@@ -1218,8 +1283,8 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
   };
 
   const handleElementMouseEnter = (element: DetectedElement) => {
-    setHighlightedElementSelector(element.selector);
-    applyHighlight(element.selector);
+    setHighlightedElementSelector(element.selector); 
+    applyHighlight(element.selector); 
 
     console.log('[DEBUG] handleElementMouseEnter: Element:', element);
     if (!element.boundingBox) {
