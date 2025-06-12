@@ -656,16 +656,8 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
 
     let srcToLoad: string;
     if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
-      if (isProxyEnabled) {
-        srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(trimmedUrl)}`;
-        log('createTestPage.logs.loadingViaProxy', { url: trimmedUrl });
-      } else {
-        srcToLoad = trimmedUrl;
-        log('createTestPage.logs.loadingDirectlyNoProxy', { url: trimmedUrl });
-        // Consider adding: setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
-        // For now, sticking to the subtask to only log if not proxying.
-        // The user can enable isProxyEnabled if direct loading causes issues.
-      }
+      srcToLoad = trimmedUrl;
+      log('createTestPage.logs.loadingDirectly', { url: trimmedUrl });
     } else if (trimmedUrl.startsWith('file:///')) {
       srcToLoad = trimmedUrl;
       log('createTestPage.logs.loadingFileUrl', { url: trimmedUrl });
@@ -787,25 +779,11 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
         setCurrentPlaywrightSessionId(sessionId);
         setUrl(actualUrl); // Update the main URL state with the actual URL from backend (handles redirects)
 
-        if (iframeSrc !== actualUrl) { 
+        if (iframeSrc !== actualUrl) {
             log('createTestPage.logs.syncingIframeToActualUrl', { newUrl: actualUrl });
             setIsLoadingPage(true);
-            
-            let finalIframeSrc = actualUrl;
-            if (actualUrl.startsWith('http://') || actualUrl.startsWith('https://')) {
-                if (isProxyEnabled) {
-                    finalIframeSrc = `${PROXY_PREFIX}${encodeURIComponent(actualUrl)}`;
-                    log('createTestPage.logs.proxyingActualUrlForIframe', { actualUrl });
-                } else {
-                    // If not using proxy, actualUrl is loaded directly.
-                    // Log if direct loading might have limitations for element detection consistency.
-                    log('createTestPage.logs.directLoadOfActualUrlForIframe', { actualUrl });
-                }
-            }
-            // File URLs or other schemes (if any from backend) are not proxied.
-            
-            setIframeSrc(finalIframeSrc);
-            setIsPagePreviewVisible(true); 
+            setIframeSrc(actualUrl); // Load actualUrl directly
+            setIsPagePreviewVisible(true);
         }
         // Potentially update page title in UI if displayed
 
@@ -1111,14 +1089,11 @@ export const CreateTestPage: React.FC<CreateTestPageProps> = ({
     
     let srcToLoad: string | null = null;
     if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-        if (isProxyEnabled) {
-            srcToLoad = `${PROXY_PREFIX}${encodeURIComponent(targetUrl)}`;
-            log('createTestPage.logs.loadingSavedTestViaProxy', { url: targetUrl });
-        } else {
-            srcToLoad = targetUrl;
-            log('createTestPage.logs.loadingSavedTestDirectly', { url: targetUrl });
-            setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
-        }
+        srcToLoad = targetUrl;
+        log('createTestPage.logs.loadingSavedTestDirectly', { url: targetUrl });
+        // The setElementDetectionError for 'externalPageNoProxyLimitations' might still be relevant if direct loading has limitations.
+        // We'll keep it as it describes a general limitation of direct loading vs potential proxy benefits.
+        setElementDetectionError(t('createTestPage.elementsPanel.externalPageNoProxyLimitations'));
     } else if (targetUrl.startsWith('file:///')) {
         srcToLoad = targetUrl;
         log('createTestPage.logs.loadingSavedTestFileUrl', { url: targetUrl });
