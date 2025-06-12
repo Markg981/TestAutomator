@@ -155,25 +155,38 @@ class PlaywrightService {
       }
 
       function getCssSelector(el: Element): string {
-        if (!(el instanceof Element)) return '';
-        const path = [];
-        while (el.nodeType === Node.ELEMENT_NODE) {
-            let selector = el.nodeName.toLowerCase();
-            if (el.id) {
-                selector += '#' + el.id;
+        if (!(el instanceof Element)) return ''; // Should not happen if called correctly
+
+        const path: string[] = [];
+        let currentEl: Element | null = el;
+
+        while (currentEl instanceof Element) {
+            let selector = currentEl.nodeName.toLowerCase();
+            if (currentEl.id) {
+                selector = '#' + currentEl.id; // More specific if ID is present
                 path.unshift(selector);
-                break; // ID is unique enough
+                break; // ID is unique enough for the path from this point
             } else {
-                let sib = el, nth = 1;
-                while (sib = sib.previousElementSibling) {
-                    if (sib.nodeName.toLowerCase() == selector) nth++;
+                const parent = currentEl.parentElement;
+                if (parent) {
+                    let count = 0;
+                    let sibling: Element | null = parent.firstElementChild;
+                    while (sibling) {
+                        if (sibling.nodeName === currentEl.nodeName) {
+                            count++;
+                            if (sibling === currentEl) {
+                                selector += `:nth-of-type(${count})`;
+                                break;
+                            }
+                        }
+                        sibling = sibling.nextElementSibling;
+                    }
                 }
-                if (nth != 1) selector += ":nth-of-type("+nth+")";
             }
             path.unshift(selector);
-            el = el.parentNode as Element;
+            currentEl = currentEl.parentElement;
         }
-        return path.join(" > ");
+        return path.join(' > ');
       }
 
       const elements = document.querySelectorAll<HTMLElement>('input, button, a, select, textarea, [role="button"], [role="link"], [role="tab"], [data-testid], p, h1, h2, h3, h4, h5, h6, div[id], span[id]');
